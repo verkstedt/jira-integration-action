@@ -5,37 +5,51 @@ import * as github from '@actions/github'
 const { context = {} } = github
 const { payload } = context
 
-const githubToken = core.getInput('github-token', { required: true })
-const githubRequireKeywordPrefix = core.getInput(
-  'github-require-keyword-prefix'
-)
-const trelloApiKey = core.getInput('trello-api-key', { required: true })
-const trelloAuthToken = core.getInput('trello-auth-token', { required: true })
-const trelloOrganizationName = core.getInput('trello-organization-name')
-const trelloBoardId = core.getInput('trello-board-id')
-const trelloListIdPrOpen = core.getInput('trello-list-id-pr-open')
-const trelloListIdPrClosed = core.getInput('trello-list-id-pr-closed')
-const trelloConflictingLabels = core
-  .getInput('trello-conflicting-labels')
-  ?.split(';')
+const githubToken = core.getInput('github-token')
+const githubRequireKeywordPrefix =
+  core.getInput('github-require-keyword-prefix') ?? true
+
+const jiraDomain = core.getInput('jira-domain', { required: true })
+const jiraUser = core.getInput('jira-user', { required: true })
+const jiraApiToken = core.getInput('jira-api-token', { required: true })
+const jiraListPrDraft = core.getInput('jira-list-pr-draft')
+const jiraListPrReady = core.getInput('jira-list-pr-ready')
+const jiraListPrMerged = core.getInput('jira-list-pr-merged')
+
+async function getIssueTransitionIds() {
+  const url = `https://${jiraDomain}/rest/api/2/issue/TTP-18/transitions`
+  const response = await axios.get(url, {
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    auth: {
+      username: jiraUser,
+      password: jiraApiToken,
+    },
+  })
+  const { transitions } = response.data
+  return new Map(
+    transitions
+      .filter((t) => t.isAvailable)
+      .map((t) => [t.name.toLowerCase(), Number.parseInt(t.id, 10)])
+  )
+}
 
 const octokit = github.getOctokit(githubToken)
 const repoOwner = (payload.organization || payload.repository.owner).login
 const issueNumber = (payload.pull_request || payload.issue).number
 
 async function run(pr) {
-  const url = pr.html_url || pr.url
-
   try {
     const comments = await getPullRequestComments()
-    const assignees = await getPullRequestAssignees()
-    const cardIds = await getCardIds(pr.body, comments)
+    const ticketIds = await getTicketIds(pr.body, comments)
 
-    if (!cardIds.length) {
-      console.log('Could not find card IDs')
+    if (!ticketIds.length) {
+      console.log('Could not find ticket IDs')
       return
     }
-    console.log('Found card IDs', cardIds)
+    console.log('Found ticket IDs:', ticketIds.join(', '))
 
     // Treat PRs with “draft” or “wip” in brackets at the start or
     // end of the titles like drafts. Useful for orgs on unpaid
@@ -46,39 +60,51 @@ async function run(pr) {
     const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
     const isDraft = isRealDraft || isFauxDraft
 
-    if (pr.state === 'open' && !isDraft && trelloListIdPrOpen) {
-      await moveCardsToList(cardIds, trelloListIdPrOpen)
-      console.log('Moved cards to opened PR list')
-    } else if (pr.state === 'closed' && trelloListIdPrClosed) {
-      await moveCardsToList(cardIds, trelloListIdPrClosed)
-      console.log('Moved cards to closed PR list')
+    if (pr.state === 'open' && isDraft) {
+      if (!jiraListPrDraft) {
+        console.log('No draft PR list name provided, skipping moving tickets')
+      } else {
+        await moveTicketsToList(ticketIds, jiraListPrDraft)
+        console.log('Moved', ticketIds.length, 'tickets to', jiraListPrDraft)
+      }
+    } else if (pr.state === 'open' && !isDraft) {
+      if (!jiraListPrReady) {
+        console.log('No ready PR list name provided, skipping moving tickets')
+      } else {
+        await moveTicketsToList(ticketIds, jiraListPrReady)
+        console.log('Moved', ticketIds.length, 'tickets to', jiraListPrReady)
+      }
+    } else if (pr.state === 'closed') {
+      if (!jiraListPrMerged) {
+        console.log('No merged PR list name provided, skipping moving tickets')
+      } else {
+        await moveTicketsToList(ticketIds, jiraListPrMerged)
+        console.log('Moved', ticketIds.length, 'tickets to', jiraListPrMerged)
+      }
     } else {
       console.log(
-        'Skipping moving the cards',
-        pr.state,
+        'Skipping moving the tickets:',
+        `pr.state=${pr.state},`,
         pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
       )
     }
-    await addAttachmentToCards(cardIds, url)
-    await updateCardMembers(cardIds, assignees)
-    await addLabelToCards(cardIds, pr.head)
   } catch (error) {
     core.setFailed(error)
   }
 }
 
-async function getCardIds(prBody, comments) {
-  console.log('Searching for card ids')
+async function getTicketIds(prBody, comments) {
+  console.log('Searching for ticket ids')
 
-  let cardIds = matchCardIds(prBody || '')
+  let ticketIds = matchTicketIds(prBody || '')
 
   for (const comment of comments) {
-    cardIds = [...cardIds, ...matchCardIds(comment.body)]
+    ticketIds = [...ticketIds, ...matchTicketIds(comment.body)]
   }
-  return [...new Set(cardIds)]
+  return [...new Set(ticketIds)]
 }
 
-function matchCardIds(text) {
+function matchTicketIds(text) {
   const keywords = [
     'close',
     'closes',
@@ -93,7 +119,7 @@ function matchCardIds(text) {
   const keywordsRegExp = githubRequireKeywordPrefix
     ? `(?:${keywords.join('|')})\\s+`
     : ''
-  const urlRegExp = 'https://trello\\.com/c/(\\w+)(?:/[^\\s,]*)?'
+  const urlRegExp = `https://${jiraDomain}/browse/([A-Z]+-\\d+)`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
   // Find all “Closes URL, URL…”
@@ -104,11 +130,11 @@ function matchCardIds(text) {
       matches.flatMap((match) => {
         // Find URLs
         const urlMatches = match.match(new RegExp(urlRegExp, 'g'))
-        // Find cardId in the URL (only capture group in urlRegexp)
-        const cardIds = urlMatches.map(
+        // Find ticketId in the URL (only capture group in urlRegexp)
+        const ticketIds = urlMatches.map(
           (url) => url.match(new RegExp(urlRegExp))[1]
         )
-        return cardIds
+        return ticketIds
       })
     )
   )
@@ -125,366 +151,54 @@ async function getPullRequestComments() {
   return response.data
 }
 
-async function getPullRequestAssignees() {
-  console.log('Requesting pull request assignees')
+async function moveTicketsToList(ticketIds, listName) {
+  const transitionIds = await getIssueTransitionIds()
 
-  const response = await octokit.rest.issues.get({
-    owner: repoOwner,
-    repo: payload.repository.name,
-    issue_number: issueNumber,
-  })
-  return [...response.data.assignees, response.data.user]
-}
-
-async function moveCardsToList(cardIds, listId) {
-  return Promise.all(
-    cardIds.map((cardId) => {
-      console.log('Moving card to a list', cardId, listId)
-
-      const url = `https://api.trello.com/1/cards/${cardId}`
-
-      return axios
-        .put(url, {
-          key: trelloApiKey,
-          token: trelloAuthToken,
-          idList: listId,
-          ...(trelloBoardId && { idBoard: trelloBoardId }),
-        })
-        .catch((error) => {
-          console.error(
-            `Error ${error.response.status} ${error.response.statusText}`,
-            url
-          )
-        })
-    })
-  )
-}
-
-async function addAttachmentToCards(cardIds, link) {
-  return Promise.all(
-    cardIds.map(async (cardId) => {
-      const extantAttachments = await getCardAttachments(cardId)
-
-      if (
-        extantAttachments &&
-        extantAttachments.some((it) => it.url.includes(link))
-      ) {
-        console.log(
-          'Found existing attachment, skipping adding attachment',
-          cardId,
-          link
-        )
-        return
-      }
-      console.log('Adding attachment to the card', cardId, link)
-
-      const url = `https://api.trello.com/1/cards/${cardId}/attachments`
-
-      return axios
-        .post(url, {
-          key: trelloApiKey,
-          token: trelloAuthToken,
-          url: link,
-        })
-        .catch((error) => {
-          console.error(
-            `Error ${error.response.status} ${error.response.statusText}`,
-            url
-          )
-        })
-    })
-  )
-}
-
-async function getCardAttachments(cardId) {
-  console.log('Checking existing attachments', cardId)
-
-  const url = `https://api.trello.com/1/cards/${cardId}/attachments`
-
-  return await axios
-    .get(url, {
-      params: {
-        key: trelloApiKey,
-        token: trelloAuthToken,
-      },
-    })
-    .then((response) => response.data)
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url
-      )
-      return null
-    })
-}
-
-async function updateCardMembers(cardIds, assignees) {
-  console.log('Starting to update card members')
-
-  if (!assignees.length) {
-    console.log('No PR assignees found')
-    return
-  }
-  const result = await Promise.all(
-    assignees.map((assignee) => getTrelloMemberId(assignee.login))
-  )
-  const memberIds = result.filter((id) => id)
-
-  if (!memberIds.length) {
-    console.log('No Trello members found based on PR assignees')
-    return
-  }
-  cardIds.forEach(async (cardId) => {
-    const cardInfo = await getCardInfo(cardId)
-
-    removeUnrelatedMembers(cardInfo, memberIds)
-    addNewMembers(cardInfo, memberIds)
-  })
-}
-
-function getTrelloMemberId(githubUserName) {
-  const username = githubUserName.replace('-', '_')
-
-  console.log('Searching Trello member id by username', username)
-
-  const url = `https://api.trello.com/1/members/${username}`
-
-  return axios
-    .get(url, {
-      params: {
-        key: trelloApiKey,
-        token: trelloAuthToken,
-        organizations: 'all',
-      },
-    })
-    .then((response) => {
-      const memberId = response.data.id
-      console.log('Found member id by name', memberId, username)
-
-      if (trelloOrganizationName) {
-        const hasAccess = response.data.organizations?.some(
-          (org) => org.name === trelloOrganizationName
-        )
-
-        if (!hasAccess) {
-          console.log(
-            '...but the member has no access to the org',
-            trelloOrganizationName
-          )
-          return
-        }
-      }
-      return memberId
-    })
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url
-      )
-    })
-}
-
-function removeUnrelatedMembers(cardInfo, memberIds) {
-  const filtered = cardInfo.idMembers.filter((id) => !memberIds.includes(id))
-
-  if (!filtered.length) {
-    console.log('Did not find any unrelated members')
-    return
-  }
-  filtered.forEach((unrelatedMemberId) =>
-    removeMemberFromCard(cardInfo.id, unrelatedMemberId)
-  )
-}
-
-function addNewMembers(cardInfo, memberIds) {
-  const filtered = memberIds.filter((id) => !cardInfo.idMembers.includes(id))
-
-  if (!filtered.length) {
-    console.log('All members are already assigned to the card')
-    return
-  }
-  filtered.forEach((memberId) => addMemberToCard(cardInfo.id, memberId))
-}
-
-function removeMemberFromCard(cardId, memberId) {
-  console.log('Removing card member', cardId, memberId)
-
-  const url = `https://api.trello.com/1/cards/${cardId}/idMembers/${memberId}`
-
-  axios
-    .delete(url, {
-      params: {
-        key: trelloApiKey,
-        token: trelloAuthToken,
-      },
-    })
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url
-      )
-    })
-}
-
-function addMemberToCard(cardId, memberId) {
-  console.log('Adding member to a card', cardId, memberId)
-
-  const url = `https://api.trello.com/1/cards/${cardId}/idMembers`
-
-  axios
-    .post(url, {
-      key: trelloApiKey,
-      token: trelloAuthToken,
-      value: memberId,
-    })
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url
-      )
-    })
-}
-
-async function addLabelToCards(cardIds, head) {
-  console.log('Starting to add labels to cards')
-
-  const branchLabel = await getBranchLabel(head)
-
-  if (!branchLabel) {
-    console.log('Could not find branch label')
-    return
-  }
-  cardIds.forEach(async (cardId) => {
-    const cardInfo = await getCardInfo(cardId)
-    const hasConflictingLabel = cardInfo.labels.find(
-      (label) =>
-        trelloConflictingLabels.includes(label.name) ||
-        label.name === branchLabel
+  const listId = transitionIds.get(listName.toLowerCase())
+  if (listId == null) {
+    throw new Error(
+      `List name ${listName} not found in JIRA. Available lists: ${Array.from(transitionIds.keys()).join(', ')}`
     )
+  }
 
-    if (hasConflictingLabel) {
+  return Promise.all(
+    ticketIds.map(async (ticketId) => {
       console.log(
-        'Skipping label adding to a card because it has a conflicting label',
-        cardInfo.labels
+        'Moving ticket',
+        ticketId,
+        'to a list',
+        listName,
+        `(${listId})`
       )
-      return
-    }
-    const boardLabels = await getBoardLabels(cardInfo.idBoard)
-    const matchingLabel = findMatchingLabel(branchLabel, boardLabels)
 
-    if (matchingLabel) {
-      await addLabelToCard(cardId, matchingLabel.id)
-    } else {
-      console.log(
-        'Could not find a matching label from the board',
-        branchLabel,
-        boardLabels
-      )
-    }
-  })
-}
+      const url = `https://${jiraDomain}/rest/api/2/issue/${ticketId}/transitions`
 
-async function getBranchLabel(head) {
-  const branchName = await getBranchName(head)
-  const matches = branchName.match(/^([^\/]*)\//)
+      const body = {
+        transition: {
+          id: listId,
+        },
+      }
 
-  if (matches) {
-    return matches[1]
-  } else {
-    console.log('Did not found branch label', branchName)
-  }
-}
-
-async function getBranchName(head) {
-  if (head?.ref) {
-    return head.ref
-  }
-  console.log('Requesting pull request head ref')
-
-  const response = await octokit.rest.pulls.get({
-    owner: repoOwner,
-    repo: payload.repository.name,
-    pull_number: issueNumber,
-  })
-  return response.data.head.ref
-}
-
-async function getBoardLabels(boardId) {
-  console.log('Getting board labels', boardId)
-
-  const url = `https://api.trello.com/1/boards/${boardId}/labels`
-
-  return await axios
-    .get(url, {
-      params: {
-        key: trelloApiKey,
-        token: trelloAuthToken,
-      },
+      return axios
+        .post(url, body, {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          auth: {
+            username: jiraUser,
+            password: jiraApiToken,
+          },
+        })
+        .catch((error) => {
+          console.error(
+            `Error ${error.response.status} ${error.response.statusText}`,
+            url,
+            error.response.data
+          )
+        })
     })
-    .then((response) => response.data)
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url
-      )
-    })
-}
-
-function findMatchingLabel(branchLabel, boardLabels) {
-  if (!branchLabel) {
-    return
-  }
-  const match = boardLabels.find((label) => label.name === branchLabel)
-
-  if (match) {
-    return match
-  }
-  console.log(
-    'Could not match the exact label name, trying to find partially matching label'
   )
-
-  return boardLabels.find((label) => branchLabel.startsWith(label.name))
-}
-
-async function addLabelToCard(cardId, labelId) {
-  console.log('Adding label to a card', cardId, labelId)
-
-  const url = `https://api.trello.com/1/cards/${cardId}/idLabels`
-
-  axios
-    .post(url, {
-      key: trelloApiKey,
-      token: trelloAuthToken,
-      value: labelId,
-    })
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url,
-        error
-      )
-    })
-}
-
-async function getCardInfo(cardId) {
-  console.log('Getting card info', cardId)
-
-  const url = `https://api.trello.com/1/cards/${cardId}`
-
-  return await axios
-    .get(url, {
-      params: {
-        key: trelloApiKey,
-        token: trelloAuthToken,
-      },
-    })
-    .then((response) => response.data)
-    .catch((error) => {
-      console.error(
-        `Error ${error.response.status} ${error.response.statusText}`,
-        url
-      )
-    })
 }
 
 run(payload.pull_request || payload.issue)

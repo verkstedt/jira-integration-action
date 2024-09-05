@@ -3,6 +3,10 @@
   "version": "6.1.2",
   "license": "MIT",
   "description": "GitHub Action to integrate Github pull requests with Trello cards",
+  "author": {
+    "name": "verkstet GmbH",
+    "email": "info@verkstedt.com"
+  },
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build index.js"
