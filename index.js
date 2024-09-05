@@ -3,7 +3,7 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 
 const { context = {} } = github
-const payload = context.payload
+const { payload } = context
 
 const githubToken = core.getInput('github-token', { required: true })
 const githubRequireKeywordPrefix = core.getInput(
@@ -91,7 +91,7 @@ function matchCardIds(text) {
     'resolved',
   ]
   const keywordsRegExp = githubRequireKeywordPrefix
-    ? '(?:' + keywords.join('|') + ')\\s+'
+    ? `(?:${keywords.join('|')})\\s+`
     : ''
   const urlRegExp = 'https://trello\\.com/c/(\\w+)(?:/[^\\s,]*)?'
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
@@ -208,9 +208,7 @@ async function getCardAttachments(cardId) {
         token: trelloAuthToken,
       },
     })
-    .then((response) => {
-      return response.data
-    })
+    .then((response) => response.data)
     .catch((error) => {
       console.error(
         `Error ${error.response.status} ${error.response.statusText}`,
@@ -398,7 +396,7 @@ async function getBranchLabel(head) {
 }
 
 async function getBranchName(head) {
-  if (head && head.ref) {
+  if (head?.ref) {
     return head.ref
   }
   console.log('Requesting pull request head ref')
