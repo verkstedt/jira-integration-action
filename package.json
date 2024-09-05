@@ -1,23 +1,23 @@
 {
-	"name": "@remato/trello-integration-action",
-	"version": "6.1.2",
-	"license": "MIT",
-	"description": "GitHub Action to integrate Github pull requests with Trello cards",
-	"main": "dist/index.js",
-	"scripts": {
-		"build": "ncc build index.js"
-	},
-	"dependencies": {
-		"@actions/core": "^1.10.0",
-		"@actions/github": "^5.1.1",
-		"axios": "^1.4.0"
-	},
-	"devDependencies": {
-		"@vercel/ncc": "^0.36.1",
-		"@verkstedt/eslint-config-verkstedt": "^10.0.0",
-		"eslint": "^8.57.0",
-		"eslint-plugin-prettier": "^5.2.1",
-		"prettier": "^3.3.3",
-		"stylelint": "^16.9.0"
-	}
+  "name": "@remato/trello-integration-action",
+  "version": "6.1.2",
+  "license": "MIT",
+  "description": "GitHub Action to integrate Github pull requests with Trello cards",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build index.js"
+  },
+  "dependencies": {
+    "@actions/core": "^1.10.0",
+    "@actions/github": "^5.1.1",
+    "axios": "^1.4.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.36.1",
+    "@verkstedt/eslint-config-verkstedt": "^10.0.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "prettier": "^3.3.3",
+    "stylelint": "^16.9.0"
+  }
 }

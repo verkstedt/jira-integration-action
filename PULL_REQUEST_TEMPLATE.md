@@ -1,4 +1,4 @@
 ##### Checklist
 
--   [ ] Used prettier
--   [ ] Ran `yarn build`
+- [ ] Used prettier
+- [ ] Ran `yarn build`

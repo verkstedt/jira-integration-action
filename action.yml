@@ -2,36 +2,36 @@ author: Remato
 name: trello-integration
 description: GitHub Action to integrate Github pull requests with Trello cards
 branding:
-    color: yellow
-    icon: anchor
+  color: yellow
+  icon: anchor
 inputs:
-    github-token:
-        description: Github token, https://docs.github.com/en/actions/reference/authentication-in-a-workflow
-        required: true
-    github-require-keyword-prefix:
-        description: When true match only URLs prefixed with “Closes” etc just like https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword
-        required: false
-    trello-api-key:
-        description: Trello API key, visit https://trello.com/app-key for key
-        required: true
-    trello-auth-token:
-        description: Trello auth token, visit https://trello.com/app-key then click generate a token
-        required: true
-    trello-organization-name:
-        description: Your organization name to avoid assigning cards to outside members, edit your workspace details and look for the short name
-        required: false
-    trello-board-id:
-        description: Trello board ID where to move the cards, visit a board then append .json to url to find id
-        required: false
-    trello-list-id-pr-open:
-        description: Trello list ID for open pull request, visit a board then append .json to url to find id
-        required: false
-    trello-list-id-pr-closed:
-        description: Trello list ID for closed pull request, visit a board then append .json to url to find id
-        required: false
-    trello-conflicting-labels:
-        description: When a card has one of these labels then branch category label is not assigned
-        required: false
+  github-token:
+    description: Github token, https://docs.github.com/en/actions/reference/authentication-in-a-workflow
+    required: true
+  github-require-keyword-prefix:
+    description: When true match only URLs prefixed with “Closes” etc just like https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword
+    required: false
+  trello-api-key:
+    description: Trello API key, visit https://trello.com/app-key for key
+    required: true
+  trello-auth-token:
+    description: Trello auth token, visit https://trello.com/app-key then click generate a token
+    required: true
+  trello-organization-name:
+    description: Your organization name to avoid assigning cards to outside members, edit your workspace details and look for the short name
+    required: false
+  trello-board-id:
+    description: Trello board ID where to move the cards, visit a board then append .json to url to find id
+    required: false
+  trello-list-id-pr-open:
+    description: Trello list ID for open pull request, visit a board then append .json to url to find id
+    required: false
+  trello-list-id-pr-closed:
+    description: Trello list ID for closed pull request, visit a board then append .json to url to find id
+    required: false
+  trello-conflicting-labels:
+    description: When a card has one of these labels then branch category label is not assigned
+    required: false
 runs:
-    using: node16
-    main: 'dist/index.js'
+  using: node16
+  main: 'dist/index.js'
