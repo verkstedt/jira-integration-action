@@ -77,6 +77,8 @@ async function run(pr) {
     const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
     const isDraft = isRealDraft || isFauxDraft
 
+    await assignPrToIssues(issueIds, pr)
+
     if (pr.state === 'open' && isDraft) {
       if (!jiraListPrDraft) {
         console.log('No draft PR list name provided, skipping moving issues')
@@ -166,6 +168,35 @@ async function getPullRequestComments() {
     issue_number: issueNumber,
   })
   return response.data
+}
+
+async function assignPrToIssues(issueIds, pr) {
+  console.log('Assigning PR to issues')
+
+  return Promise.all(
+    issueIds.map(async (issueId) => {
+      console.log('Assigning PR to issue', issueId)
+
+      const prLinkObject = {
+        url: pr.html_url,
+        title: `PR #${pr.number}: ${pr.title}`,
+      }
+
+      const { data: links } = await jiraApi.get(
+        `issue/${encodeURIComponent(issueId)}/remotelink`
+      )
+
+      const alreadyAssigned = links.some(
+        (link) => link.object.url === prLinkObject.url
+      )
+      if (!alreadyAssigned) {
+        await jiraApi.post(`issue/${encodeURIComponent(issueId)}/remotelink`, {
+          application: {},
+          object: prLinkObject,
+        })
+      }
+    })
+  )
 }
 
 async function moveIssuesToList(issueIds, listName) {
