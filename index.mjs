@@ -87,30 +87,51 @@ async function run(pr) {
 
     if (pr.state === 'open' && isDraft) {
       if (!jiraListPrDraft) {
-        console.log('No draft PR list name provided, skipping moving issues')
+        console.log(
+          'No draft PR list name provided, skipping transitioning issues'
+        )
       } else {
-        await moveIssuesToList(issueIds, jiraListPrDraft)
-        console.log('Moved', issueIds.length, 'issues to', jiraListPrDraft)
+        await transitionIssue(issueIds, jiraListPrDraft)
+        console.log(
+          'Transitioned',
+          issueIds.length,
+          'issue(s) to',
+          jiraListPrDraft
+        )
       }
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraListPrReady) {
-        console.log('No ready PR list name provided, skipping moving issues')
+        console.log(
+          'No ready PR list name provided, skipping transitioning issues'
+        )
       } else {
-        await moveIssuesToList(issueIds, jiraListPrReady)
-        console.log('Moved', issueIds.length, 'issues to', jiraListPrReady)
+        await transitionIssue(issueIds, jiraListPrReady)
+        console.log(
+          'Transitioned',
+          issueIds.length,
+          'issue(s) to',
+          jiraListPrReady
+        )
       }
     } else if (pr.state === 'closed') {
       if (!jiraListPrMerged) {
-        console.log('No merged PR list name provided, skipping moving issues')
+        console.log(
+          'No merged PR list name provided, skipping transitioning issues'
+        )
       } else {
-        await moveIssuesToList(issueIds, jiraListPrMerged)
-        console.log('Moved', issueIds.length, 'issues to', jiraListPrMerged)
+        await transitionIssue(issueIds, jiraListPrMerged)
+        console.log(
+          'Transitioned',
+          issueIds.length,
+          'issue(s) to',
+          jiraListPrMerged
+        )
       }
     } else {
       console.log(
-        'Skipping moving the issues:',
+        'Skipping transitioning the issues:',
         `pr.state=${pr.state},`,
-        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
+        pr.draft ? 'draft' : iFauxDraft ? 'faux draft' : 'not draft'
       )
     }
   } catch (error) {
@@ -177,11 +198,9 @@ async function getPullRequestComments() {
 }
 
 async function assignPrToIssues(issueIds, pr) {
-  console.log('Assigning PR to issues')
-
-  return Promise.all(
+  await Promise.all(
     issueIds.map(async (issueId) => {
-      console.log('Assigning PR to issue', issueId)
+      console.log('Assigning PR', `#${pr.number}`, 'to issue', issueId)
 
       const prLinkObject = {
         url: pr.html_url,
@@ -203,12 +222,14 @@ async function assignPrToIssues(issueIds, pr) {
       }
     })
   )
+
+  console.log('Assigned PR', `#${pr.number}`, 'to', issueIds.length, 'issue(s)')
 }
 
-async function moveIssuesToList(issueIds, listName) {
+async function transitionIssue(issueIds, listName) {
   return Promise.all(
     issueIds.map(async (issueId) => {
-      console.log('Moving issue', issueId, 'to a list', listName, `(${listId})`)
+      console.log('Transitioned issue', issueId, 'to', listName)
 
       const transitionIds = await getIssueTransitionIds(issueId)
 
