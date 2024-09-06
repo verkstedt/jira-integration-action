@@ -33,5 +33,9 @@ jobs:
           jira-list-pr-draft: ${{ vars.JIRA_LIST_PR_DRAFT }}
           jira-list-pr-ready: ${{ vars.JIRA_LIST_PR_READY }}
           jira-list-pr-merged: ${{ vars.JIRA_LIST_PR_MERGED }}
-
 ```
+
+## Debugging
+
+- Create `mock-inputs.json` with input values AND additional `test-issue-id`.
+- Run `node index.mjs`.
