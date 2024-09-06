@@ -16,8 +16,8 @@ const jiraListPrDraft = core.getInput('jira-list-pr-draft')
 const jiraListPrReady = core.getInput('jira-list-pr-ready')
 const jiraListPrMerged = core.getInput('jira-list-pr-merged')
 
-async function getIssueTransitionIds() {
-  const url = `https://${jiraDomain}/rest/api/2/issue/TTP-18/transitions`
+async function getIssueTransitionIds(issueId) {
+  const url = `https://${jiraDomain}/rest/api/2/issue/${encodeURIComponent(issueId)}/transitions`
   const response = await axios.get(url, {
     headers: {
       'Accept': 'application/json',
@@ -152,18 +152,18 @@ async function getPullRequestComments() {
 }
 
 async function moveIssuesToList(issueIds, listName) {
-  const transitionIds = await getIssueTransitionIds()
-
-  const listId = transitionIds.get(listName.toLowerCase())
-  if (listId == null) {
-    throw new Error(
-      `List name ${listName} not found in JIRA. Available lists: ${Array.from(transitionIds.keys()).join(', ')}`
-    )
-  }
-
   return Promise.all(
     issueIds.map(async (issueId) => {
       console.log('Moving issue', issueId, 'to a list', listName, `(${listId})`)
+
+      const transitionIds = await getIssueTransitionIds(issueId)
+
+      const listId = transitionIds.get(listName.toLowerCase())
+      if (listId == null) {
+        throw new Error(
+          `List name ${listName} not found in JIRA. Available lists: ${Array.from(transitionIds.keys()).join(', ')}`
+        )
+      }
 
       const url = `https://${jiraDomain}/rest/api/2/issue/${issueId}/transitions`
 
