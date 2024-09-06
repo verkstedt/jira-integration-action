@@ -16,18 +16,35 @@ const jiraListPrDraft = core.getInput('jira-list-pr-draft')
 const jiraListPrReady = core.getInput('jira-list-pr-ready')
 const jiraListPrMerged = core.getInput('jira-list-pr-merged')
 
+const jiraApi = axios.create({
+  // https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
+  baseURL: `https://${jiraDomain}/rest/api/2`,
+  headers: {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  },
+  auth: {
+    username: jiraUser,
+    password: jiraApiToken,
+  },
+})
+
+jiraApi.interceptors.response.use(
+  null,
+  /** @param {import('axios').AxiosError} error */
+  (error) => {
+    console.error(
+      `Error ${error.response.status} ${error.response.statusText}`,
+      error.request.path,
+      error.response.data
+    )
+  }
+)
+
 async function getIssueTransitionIds(issueId) {
-  const url = `https://${jiraDomain}/rest/api/2/issue/${encodeURIComponent(issueId)}/transitions`
-  const response = await axios.get(url, {
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-    },
-    auth: {
-      username: jiraUser,
-      password: jiraApiToken,
-    },
-  })
+  const response = await jiraApi.get(
+    `issue/${encodeURIComponent(issueId)}/transitions`
+  )
   const { transitions } = response.data
   return new Map(
     transitions
@@ -165,32 +182,11 @@ async function moveIssuesToList(issueIds, listName) {
         )
       }
 
-      const url = `https://${jiraDomain}/rest/api/2/issue/${issueId}/transitions`
-
-      const body = {
+      return jiraApi.post(`issue/${issueId}/transitions`, {
         transition: {
           id: listId,
         },
-      }
-
-      return axios
-        .post(url, body, {
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          auth: {
-            username: jiraUser,
-            password: jiraApiToken,
-          },
-        })
-        .catch((error) => {
-          console.error(
-            `Error ${error.response.status} ${error.response.statusText}`,
-            url,
-            error.response.data
-          )
-        })
+      })
     })
   )
 }
