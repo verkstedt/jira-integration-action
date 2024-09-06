@@ -42449,7 +42449,7 @@ async function run(pr) {
       console.log(
         'Skipping transitioning the issues:',
         `pr.state=${pr.state},`,
-        pr.draft ? 'draft' : iFauxDraft ? 'faux draft' : 'not draft'
+        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
       )
     }
   } catch (error) {
