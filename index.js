@@ -43,13 +43,13 @@ const issueNumber = (payload.pull_request || payload.issue).number
 async function run(pr) {
   try {
     const comments = await getPullRequestComments()
-    const ticketIds = await getTicketIds(pr.body, comments)
+    const issueIds = await getIssueIds(pr.body, comments)
 
-    if (!ticketIds.length) {
-      console.log('Could not find ticket IDs')
+    if (!issueIds.length) {
+      console.log('Could not find issue IDs')
       return
     }
-    console.log('Found ticket IDs:', ticketIds.join(', '))
+    console.log('Found issue IDs:', issueIds.join(', '))
 
     // Treat PRs with “draft” or “wip” in brackets at the start or
     // end of the titles like drafts. Useful for orgs on unpaid
@@ -62,28 +62,28 @@ async function run(pr) {
 
     if (pr.state === 'open' && isDraft) {
       if (!jiraListPrDraft) {
-        console.log('No draft PR list name provided, skipping moving tickets')
+        console.log('No draft PR list name provided, skipping moving issues')
       } else {
-        await moveTicketsToList(ticketIds, jiraListPrDraft)
-        console.log('Moved', ticketIds.length, 'tickets to', jiraListPrDraft)
+        await moveIssuesToList(issueIds, jiraListPrDraft)
+        console.log('Moved', issueIds.length, 'issues to', jiraListPrDraft)
       }
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraListPrReady) {
-        console.log('No ready PR list name provided, skipping moving tickets')
+        console.log('No ready PR list name provided, skipping moving issues')
       } else {
-        await moveTicketsToList(ticketIds, jiraListPrReady)
-        console.log('Moved', ticketIds.length, 'tickets to', jiraListPrReady)
+        await moveIssuesToList(issueIds, jiraListPrReady)
+        console.log('Moved', issueIds.length, 'issues to', jiraListPrReady)
       }
     } else if (pr.state === 'closed') {
       if (!jiraListPrMerged) {
-        console.log('No merged PR list name provided, skipping moving tickets')
+        console.log('No merged PR list name provided, skipping moving issues')
       } else {
-        await moveTicketsToList(ticketIds, jiraListPrMerged)
-        console.log('Moved', ticketIds.length, 'tickets to', jiraListPrMerged)
+        await moveIssuesToList(issueIds, jiraListPrMerged)
+        console.log('Moved', issueIds.length, 'issues to', jiraListPrMerged)
       }
     } else {
       console.log(
-        'Skipping moving the tickets:',
+        'Skipping moving the issues:',
         `pr.state=${pr.state},`,
         pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
       )
@@ -93,18 +93,18 @@ async function run(pr) {
   }
 }
 
-async function getTicketIds(prBody, comments) {
-  console.log('Searching for ticket ids')
+async function getIssueIds(prBody, comments) {
+  console.log('Searching for issue ids')
 
-  let ticketIds = matchTicketIds(prBody || '')
+  let issueIds = matchIssueIds(prBody || '')
 
   for (const comment of comments) {
-    ticketIds = [...ticketIds, ...matchTicketIds(comment.body)]
+    issueIds = [...issueIds, ...matchIssueIds(comment.body)]
   }
-  return [...new Set(ticketIds)]
+  return [...new Set(issueIds)]
 }
 
-function matchTicketIds(text) {
+function matchIssueIds(text) {
   const keywords = [
     'close',
     'closes',
@@ -130,11 +130,11 @@ function matchTicketIds(text) {
       matches.flatMap((match) => {
         // Find URLs
         const urlMatches = match.match(new RegExp(urlRegExp, 'g'))
-        // Find ticketId in the URL (only capture group in urlRegexp)
-        const ticketIds = urlMatches.map(
+        // Find issueId in the URL (only capture group in urlRegexp)
+        const issueIds = urlMatches.map(
           (url) => url.match(new RegExp(urlRegExp))[1]
         )
-        return ticketIds
+        return issueIds
       })
     )
   )
@@ -151,7 +151,7 @@ async function getPullRequestComments() {
   return response.data
 }
 
-async function moveTicketsToList(ticketIds, listName) {
+async function moveIssuesToList(issueIds, listName) {
   const transitionIds = await getIssueTransitionIds()
 
   const listId = transitionIds.get(listName.toLowerCase())
@@ -162,16 +162,10 @@ async function moveTicketsToList(ticketIds, listName) {
   }
 
   return Promise.all(
-    ticketIds.map(async (ticketId) => {
-      console.log(
-        'Moving ticket',
-        ticketId,
-        'to a list',
-        listName,
-        `(${listId})`
-      )
+    issueIds.map(async (issueId) => {
+      console.log('Moving issue', issueId, 'to a list', listName, `(${listId})`)
 
-      const url = `https://${jiraDomain}/rest/api/2/issue/${ticketId}/transitions`
+      const url = `https://${jiraDomain}/rest/api/2/issue/${issueId}/transitions`
 
       const body = {
         transition: {
