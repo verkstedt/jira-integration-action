@@ -2,6 +2,12 @@ import axios from 'axios'
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 
+// Use these for local debugging.
+// You will also need `mock-inputs.json` with input values.
+//
+// import * as core from './mock.mjs'
+// import * as github from './mock.mjs'
+
 const { context = {} } = github
 const { payload } = context
 
@@ -213,7 +219,7 @@ async function moveIssuesToList(issueIds, listName) {
         )
       }
 
-      return jiraApi.post(`issue/${issueId}/transitions`, {
+      return jiraApi.post(`issue/${encodeURIComponent(issueId)}/transitions`, {
         transition: {
           id: listId,
         },

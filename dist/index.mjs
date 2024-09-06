@@ -42320,6 +42320,12 @@ var github_namespaceObject = /*#__PURE__*/__nccwpck_require__.t(github, 2);
 
 
 
+// Use these for local debugging.
+// You will also need `mock-inputs.json` with input values.
+//
+// import * as core from './mock.mjs'
+// import * as github from './mock.mjs'
+
 const { context = {} } = github_namespaceObject
 const { payload } = context
 
@@ -42531,7 +42537,7 @@ async function moveIssuesToList(issueIds, listName) {
         )
       }
 
-      return jiraApi.post(`issue/${issueId}/transitions`, {
+      return jiraApi.post(`issue/${encodeURIComponent(issueId)}/transitions`, {
         transition: {
           id: listId,
         },
