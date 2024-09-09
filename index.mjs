@@ -131,7 +131,7 @@ async function run(pr) {
       console.log(
         'Skipping transitioning the issues:',
         `pr.state=${pr.state},`,
-        pr.draft ? 'draft' : iFauxDraft ? 'faux draft' : 'not draft'
+        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
       )
     }
   } catch (error) {
@@ -204,7 +204,9 @@ async function assignPrToIssues(issueIds, pr) {
 
       const prLinkObject = {
         url: pr.html_url,
-        title: `PR #${pr.number}: ${pr.title}`,
+        // Using URL as title will make JIRA fetch the title itself
+        title: pr.html_url,
+        icon: { url16x16: 'https://github.com/favicon.ico' },
       }
 
       const { data: links } = await jiraApi.get(
