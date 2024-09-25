@@ -42326,8 +42326,10 @@ var github_namespaceObject = /*#__PURE__*/__nccwpck_require__.t(github, 2);
 // import * as core from './mock.mjs'
 // import * as github from './mock.mjs'
 
-const { context = {} } = github_namespaceObject
-const { payload } = context
+const {
+  context,
+  context: { payload, repo },
+} = github_namespaceObject
 
 const githubToken = core.getInput('github-token')
 const githubRequireKeywordPrefix =
@@ -42381,12 +42383,25 @@ const octokit = github.getOctokit(githubToken)
 const repoOwner = (payload.organization || payload.repository.owner).login
 const issueNumber = (payload.pull_request || payload.issue).number
 
-async function run(pr) {
+async function main() {
+  const pr = payload.pull_request || payload.issue
+
   try {
     const comments = await getPullRequestComments()
     const issueIds = await getIssueIds(pr.body, comments)
 
     if (!issueIds.length) {
+      if (context.eventName === 'pull_request' && payload.action === 'opened') {
+        octokit.rest.issues.createComment({
+          issue_number: pr.number,
+          owner: repo.owner,
+          repo: repo.repo,
+          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”).\n`,
+        })
+      }
+
+      console.log('CONTEXT', context)
+
       console.log('Could not find issue IDs')
       return
     }
@@ -42569,7 +42584,7 @@ async function transitionIssue(issueIds, listName) {
   )
 }
 
-run(payload.pull_request || payload.issue)
+main()
 
 })();
 
