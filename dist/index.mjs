@@ -42396,11 +42396,9 @@ async function main() {
           issue_number: pr.number,
           owner: repo.owner,
           repo: repo.repo,
-          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”).\n`,
+          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
         })
       }
-
-      console.log('CONTEXT', context)
 
       console.log('Could not find issue IDs')
       return
