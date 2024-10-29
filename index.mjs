@@ -51,6 +51,10 @@ jiraApi.interceptors.response.use(
   }
 )
 
+const octokit = github.getOctokit(githubToken)
+const repoOwner = (payload.organization || payload.repository.owner).login
+const issueNumber = (payload.pull_request || payload.issue).number
+
 function normaliseStatusName(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
@@ -74,79 +78,6 @@ async function getIssues(issuesIds) {
         .map((t) => [normaliseStatusName(t.name), Number.parseInt(t.id, 10)])
     ),
   }))
-}
-
-const octokit = github.getOctokit(githubToken)
-const repoOwner = (payload.organization || payload.repository.owner).login
-const issueNumber = (payload.pull_request || payload.issue).number
-
-async function main() {
-  const pr = payload.pull_request || payload.issue
-
-  try {
-    const comments = await getPullRequestComments()
-    const issueIds = await getIssueIds(pr.body, comments)
-
-    if (!issueIds.length) {
-      if (context.eventName === 'pull_request' && payload.action === 'opened') {
-        octokit.rest.issues.createComment({
-          issue_number: pr.number,
-          owner: repo.owner,
-          repo: repo.repo,
-          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
-        })
-      }
-
-      console.log('Could not find issue IDs')
-      return
-    }
-    console.log('Found issue IDs:', issueIds.join(', '))
-
-    // Treat PRs with “draft” or “wip” in brackets at the start or
-    // end of the titles like drafts. Useful for orgs on unpaid
-    // plans which doesn’t support PR drafts.
-    const titleDraftRegExp =
-      /^(?:\s*[\[(](?:wip|draft)[\])]\s+)|(?:\s+[\[(](?:wip|draft)[\])]\s*)$/i
-    const isRealDraft = pr.draft === true
-    const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
-    const isDraft = isRealDraft || isFauxDraft
-
-    await assignPrToIssues(issueIds, pr)
-
-    if (pr.state === 'open' && isDraft) {
-      if (!jiraListPrDraft) {
-        console.log(
-          'No draft PR status name provided, skipping transitioning issues'
-        )
-      } else {
-        await transitionIssues(issueIds, jiraListPrDraft)
-      }
-    } else if (pr.state === 'open' && !isDraft) {
-      if (!jiraListPrReady) {
-        console.log(
-          'No ready PR status name provided, skipping transitioning issues'
-        )
-      } else {
-        await transitionIssues(issueIds, jiraListPrReady)
-      }
-    } else if (pr.state === 'closed') {
-      if (!jiraListPrMerged) {
-        console.log(
-          'No merged PR status name provided, skipping transitioning issues'
-        )
-      } else {
-        await transitionIssues(issueIds, jiraListPrMerged)
-      }
-    } else {
-      console.log(
-        'Skipping transitioning the issues:',
-        `pr.state=${pr.state},`,
-        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
-      )
-    }
-  } catch (error) {
-    core.setFailed(error)
-  }
 }
 
 async function getIssueIds(prBody, comments) {
@@ -279,6 +210,75 @@ async function transitionIssues(issuesIds, newStatusName) {
       }
     )
   )
+}
+
+async function main() {
+  const pr = payload.pull_request || payload.issue
+
+  try {
+    const comments = await getPullRequestComments()
+    const issueIds = await getIssueIds(pr.body, comments)
+
+    if (!issueIds.length) {
+      if (context.eventName === 'pull_request' && payload.action === 'opened') {
+        octokit.rest.issues.createComment({
+          issue_number: pr.number,
+          owner: repo.owner,
+          repo: repo.repo,
+          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
+        })
+      }
+
+      console.log('Could not find issue IDs')
+      return
+    }
+    console.log('Found issue IDs:', issueIds.join(', '))
+
+    // Treat PRs with “draft” or “wip” in brackets at the start or
+    // end of the titles like drafts. Useful for orgs on unpaid
+    // plans which doesn’t support PR drafts.
+    const titleDraftRegExp =
+      /^(?:\s*[\[(](?:wip|draft)[\])]\s+)|(?:\s+[\[(](?:wip|draft)[\])]\s*)$/i
+    const isRealDraft = pr.draft === true
+    const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
+    const isDraft = isRealDraft || isFauxDraft
+
+    await assignPrToIssues(issueIds, pr)
+
+    if (pr.state === 'open' && isDraft) {
+      if (!jiraListPrDraft) {
+        console.log(
+          'No draft PR status name provided, skipping transitioning issues'
+        )
+      } else {
+        await transitionIssues(issueIds, jiraListPrDraft)
+      }
+    } else if (pr.state === 'open' && !isDraft) {
+      if (!jiraListPrReady) {
+        console.log(
+          'No ready PR status name provided, skipping transitioning issues'
+        )
+      } else {
+        await transitionIssues(issueIds, jiraListPrReady)
+      }
+    } else if (pr.state === 'closed') {
+      if (!jiraListPrMerged) {
+        console.log(
+          'No merged PR status name provided, skipping transitioning issues'
+        )
+      } else {
+        await transitionIssues(issueIds, jiraListPrMerged)
+      }
+    } else {
+      console.log(
+        'Skipping transitioning the issues:',
+        `pr.state=${pr.state},`,
+        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
+      )
+    }
+  } catch (error) {
+    core.setFailed(error)
+  }
 }
 
 main()
