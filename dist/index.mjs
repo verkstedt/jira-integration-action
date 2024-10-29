@@ -42332,6 +42332,7 @@ const {
   context,
   context: { payload, repo },
 } = github_namespaceObject
+const pr = payload.pull_request || payload.issue
 
 const githubToken = core.getInput('github-token')
 const githubRequireKeywordPrefix =
@@ -42377,11 +42378,11 @@ function normaliseStatusName(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-async function getIssues(issuesIds) {
+async function getIssues(issuesKeys) {
   const response = await jiraApi.get('search', {
     params: {
       maxResults: 100,
-      jql: `id in (${issuesIds.join(',')})`,
+      jql: `id in (${issuesKeys.join(',')})`,
       fields: 'status',
       expand: 'transitions',
     },
@@ -42398,18 +42399,18 @@ async function getIssues(issuesIds) {
   }))
 }
 
-async function getIssueIds(prBody, comments) {
+async function extractResolvedIssueKeys(prBody, comments) {
   console.log('Searching for issue ids')
 
-  let issueIds = matchIssueIds(prBody || '')
+  let issueIds = extractResolvedIssueKeysFromText(prBody || '')
 
   for (const comment of comments) {
-    issueIds = [...issueIds, ...matchIssueIds(comment.body)]
+    issueIds = [...issueIds, ...extractResolvedIssueKeysFromText(comment.body)]
   }
   return [...new Set(issueIds)]
 }
 
-function matchIssueIds(text) {
+function extractResolvedIssueKeysFromText(text) {
   const keywords = [
     'close',
     'closes',
@@ -42427,8 +42428,8 @@ function matchIssueIds(text) {
   // Warning:
   // It’s extremely important for this regexp to match only simple
   // jira keys as extracted keys will be used in JQL queries.
-  const issueIdRegExp = '[A-Z]+-[0-9]+'
-  const urlRegExp = `https://${jiraDomain}/browse/(${issueIdRegExp})`
+  const issueKeyRegExp = '[A-Z]+-[0-9]+'
+  const urlRegExp = `https://${jiraDomain}/browse/(${issueKeyRegExp})`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
   // Find all “Closes URL, URL…”
@@ -42440,10 +42441,10 @@ function matchIssueIds(text) {
         // Find URLs
         const urlMatches = match.match(new RegExp(urlRegExp, 'g'))
         // Find issueId in the URL (only capture group in urlRegexp)
-        const issueIds = urlMatches.map(
+        const issueKeys = urlMatches.map(
           (url) => url.match(new RegExp(urlRegExp))[1]
         )
-        return issueIds
+        return issueKeys
       })
     )
   )
@@ -42460,10 +42461,19 @@ async function getPullRequestComments() {
   return response.data
 }
 
-async function assignPrToIssues(issueIds, pr) {
+async function nagToLinkJiraIssue() {
+  await octokit.rest.issues.createComment({
+    issue_number: pr.number,
+    owner: repo.owner,
+    repo: repo.repo,
+    body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
+  })
+}
+
+async function assignPrToIssues(issueKeys) {
   await Promise.all(
-    issueIds.map(async (issueId) => {
-      console.log('Assigning PR', `#${pr.number}`, 'to issue', issueId)
+    issueKeys.map(async (issueKey) => {
+      console.log('Assigning PR', `#${pr.number}`, 'to issue', issueKey)
 
       const prLinkObject = {
         url: pr.html_url,
@@ -42473,14 +42483,14 @@ async function assignPrToIssues(issueIds, pr) {
       }
 
       const { data: links } = await jiraApi.get(
-        `issue/${encodeURIComponent(issueId)}/remotelink`
+        `issue/${encodeURIComponent(issueKey)}/remotelink`
       )
 
       const alreadyAssigned = links.some(
         (link) => link.object.url === prLinkObject.url
       )
       if (!alreadyAssigned) {
-        await jiraApi.post(`issue/${encodeURIComponent(issueId)}/remotelink`, {
+        await jiraApi.post(`issue/${encodeURIComponent(issueKey)}/remotelink`, {
           application: {},
           object: prLinkObject,
         })
@@ -42488,13 +42498,19 @@ async function assignPrToIssues(issueIds, pr) {
     })
   )
 
-  console.log('Assigned PR', `#${pr.number}`, 'to', issueIds.length, 'issue(s)')
+  console.log(
+    'Assigned PR',
+    `#${pr.number}`,
+    'to',
+    issueKeys.length,
+    'issue(s)'
+  )
 }
 
-async function transitionIssues(issuesIds, newStatusName) {
+async function transitionIssues(issueKeys, newStatusName) {
   const newStatusNameNormalised = normaliseStatusName(newStatusName)
 
-  const issuesData = await getIssues(issuesIds)
+  const issuesData = await getIssues(issueKeys)
 
   return Promise.all(
     issuesData.map(
@@ -42531,20 +42547,13 @@ async function transitionIssues(issuesIds, newStatusName) {
 }
 
 async function main() {
-  const pr = payload.pull_request || payload.issue
-
   try {
     const comments = await getPullRequestComments()
-    const issueIds = await getIssueIds(pr.body, comments)
+    const issueIds = await extractResolvedIssueKeys(pr.body, comments)
 
     if (!issueIds.length) {
       if (context.eventName === 'pull_request' && payload.action === 'opened') {
-        octokit.rest.issues.createComment({
-          issue_number: pr.number,
-          owner: repo.owner,
-          repo: repo.repo,
-          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
-        })
+        void nagToLinkJiraIssue()
       }
 
       console.log('Could not find issue IDs')
@@ -42561,7 +42570,7 @@ async function main() {
     const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
     const isDraft = isRealDraft || isFauxDraft
 
-    await assignPrToIssues(issueIds, pr)
+    await assignPrToIssues(issueIds)
 
     if (pr.state === 'open' && isDraft) {
       if (!jiraListPrDraft) {
