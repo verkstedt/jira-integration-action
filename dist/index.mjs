@@ -42323,8 +42323,10 @@ var github_namespaceObject = /*#__PURE__*/__nccwpck_require__.t(github, 2);
 // Use these for local debugging.
 // You will also need `mock-inputs.json` with input values.
 //
-// import * as core from './mock.mjs'
-// import * as github from './mock.mjs'
+// import * as mock from './mock.mjs'
+//
+// const core = mock
+// const github = mock
 
 const {
   context,
@@ -42371,22 +42373,28 @@ function normaliseStatusName(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-async function getIssueStatusName(issueId) {
-  const response = await jiraApi.get(`issue/${encodeURIComponent(issueId)}`)
-  const currentStatusName = response.data.fields.status.name
-  return normaliseStatusName(currentStatusName)
-}
+async function getIssue(issueId) {
+  const response = await jiraApi.get(`issue/${encodeURIComponent(issueId)}`, {
+    params: {
+      fields: 'status',
+      expand: 'transitions',
+    },
+  })
+  const {
+    data: {
+      fields: { status },
+      transitions,
+    },
+  } = response
 
-async function getIssueTransitionIds(issueId) {
-  const response = await jiraApi.get(
-    `issue/${encodeURIComponent(issueId)}/transitions`
-  )
-  const { transitions } = response.data
-  return new Map(
-    transitions
-      .filter((t) => t.isAvailable)
-      .map((t) => [normaliseStatusName(t.name), Number.parseInt(t.id, 10)])
-  )
+  return {
+    currentStatusName: normaliseStatusName(status.name),
+    availableTransitions: new Map(
+      transitions
+        .filter((t) => t.isAvailable)
+        .map((t) => [normaliseStatusName(t.name), Number.parseInt(t.id, 10)])
+    ),
+  }
 }
 
 const octokit = github.getOctokit(githubToken)
@@ -42432,13 +42440,7 @@ async function main() {
           'No draft PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssue(issueIds, jiraListPrDraft)
-        console.log(
-          'Transitioned',
-          issueIds.length,
-          'issue(s) to',
-          jiraListPrDraft
-        )
+        await transitionIssues(issueIds, jiraListPrDraft)
       }
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraListPrReady) {
@@ -42446,13 +42448,7 @@ async function main() {
           'No ready PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssue(issueIds, jiraListPrReady)
-        console.log(
-          'Transitioned',
-          issueIds.length,
-          'issue(s) to',
-          jiraListPrReady
-        )
+        await transitionIssues(issueIds, jiraListPrReady)
       }
     } else if (pr.state === 'closed') {
       if (!jiraListPrMerged) {
@@ -42460,13 +42456,7 @@ async function main() {
           'No merged PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssue(issueIds, jiraListPrMerged)
-        console.log(
-          'Transitioned',
-          issueIds.length,
-          'issue(s) to',
-          jiraListPrMerged
-        )
+        await transitionIssues(issueIds, jiraListPrMerged)
       }
     } else {
       console.log(
@@ -42569,22 +42559,26 @@ async function assignPrToIssues(issueIds, pr) {
   console.log('Assigned PR', `#${pr.number}`, 'to', issueIds.length, 'issue(s)')
 }
 
-async function transitionIssue(issueIds, newStatusName) {
+async function transitionIssues(issueIds, newStatusName) {
   return Promise.all(
     issueIds.map(async (issueId) => {
-      console.log('Transitioning issue', issueId, 'to', newStatusName)
-
       const newStatusNameNormalised = normaliseStatusName(newStatusName)
 
-      const currentStatusName = await getIssueStatusName(issueId)
+      const { currentStatusName, availableTransitions } =
+        await getIssue(issueId)
 
-      if (currentStatusName !== newStatusNameNormalised) {
-        const transitionIds = await getIssueTransitionIds(issueId)
-
-        const newStatusId = transitionIds.get(newStatusNameNormalised)
+      if (currentStatusName === newStatusNameNormalised) {
+        console.log(
+          'Did not transition',
+          issueId,
+          '— already in',
+          newStatusName
+        )
+      } else {
+        const newStatusId = availableTransitions.get(newStatusNameNormalised)
         if (newStatusId == null) {
           throw new Error(
-            `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(transitionIds.keys()).join(', ')}`
+            `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
           )
         }
 
@@ -42593,6 +42587,8 @@ async function transitionIssue(issueIds, newStatusName) {
             id: newStatusId,
           },
         })
+
+        console.log('Transitioned', issueId, 'to', newStatusName)
       }
     })
   )
