@@ -49,6 +49,16 @@ jiraApi.interceptors.response.use(
   }
 )
 
+function normaliseStatusName(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+async function getIssueStatusName(issueId) {
+  const response = await jiraApi.get(`issue/${encodeURIComponent(issueId)}`)
+  const currentStatusName = response.data.fields.status.name
+  return normaliseStatusName(currentStatusName)
+}
+
 async function getIssueTransitionIds(issueId) {
   const response = await jiraApi.get(
     `issue/${encodeURIComponent(issueId)}/transitions`
@@ -57,7 +67,7 @@ async function getIssueTransitionIds(issueId) {
   return new Map(
     transitions
       .filter((t) => t.isAvailable)
-      .map((t) => [t.name.toLowerCase(), Number.parseInt(t.id, 10)])
+      .map((t) => [normaliseStatusName(t.name), Number.parseInt(t.id, 10)])
   )
 }
 
@@ -101,7 +111,7 @@ async function main() {
     if (pr.state === 'open' && isDraft) {
       if (!jiraListPrDraft) {
         console.log(
-          'No draft PR list name provided, skipping transitioning issues'
+          'No draft PR status name provided, skipping transitioning issues'
         )
       } else {
         await transitionIssue(issueIds, jiraListPrDraft)
@@ -115,7 +125,7 @@ async function main() {
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraListPrReady) {
         console.log(
-          'No ready PR list name provided, skipping transitioning issues'
+          'No ready PR status name provided, skipping transitioning issues'
         )
       } else {
         await transitionIssue(issueIds, jiraListPrReady)
@@ -129,7 +139,7 @@ async function main() {
     } else if (pr.state === 'closed') {
       if (!jiraListPrMerged) {
         console.log(
-          'No merged PR list name provided, skipping transitioning issues'
+          'No merged PR status name provided, skipping transitioning issues'
         )
       } else {
         await transitionIssue(issueIds, jiraListPrMerged)
@@ -241,25 +251,31 @@ async function assignPrToIssues(issueIds, pr) {
   console.log('Assigned PR', `#${pr.number}`, 'to', issueIds.length, 'issue(s)')
 }
 
-async function transitionIssue(issueIds, listName) {
+async function transitionIssue(issueIds, newStatusName) {
   return Promise.all(
     issueIds.map(async (issueId) => {
-      console.log('Transitioned issue', issueId, 'to', listName)
+      console.log('Transitioning issue', issueId, 'to', newStatusName)
 
-      const transitionIds = await getIssueTransitionIds(issueId)
+      const newStatusNameNormalised = normaliseStatusName(newStatusName)
 
-      const listId = transitionIds.get(listName.toLowerCase())
-      if (listId == null) {
-        throw new Error(
-          `List name ${listName} not found in JIRA. Available lists: ${Array.from(transitionIds.keys()).join(', ')}`
-        )
+      const currentStatusName = await getIssueStatusName(issueId)
+
+      if (currentStatusName !== newStatusNameNormalised) {
+        const transitionIds = await getIssueTransitionIds(issueId)
+
+        const newStatusId = transitionIds.get(newStatusNameNormalised)
+        if (newStatusId == null) {
+          throw new Error(
+            `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(transitionIds.keys()).join(', ')}`
+          )
+        }
+
+        await jiraApi.post(`issue/${encodeURIComponent(issueId)}/transitions`, {
+          transition: {
+            id: newStatusId,
+          },
+        })
       }
-
-      return jiraApi.post(`issue/${encodeURIComponent(issueId)}/transitions`, {
-        transition: {
-          id: listId,
-        },
-      })
     })
   )
 }
