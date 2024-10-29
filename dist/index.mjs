@@ -42373,28 +42373,25 @@ function normaliseStatusName(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-async function getIssue(issueId) {
-  const response = await jiraApi.get(`issue/${encodeURIComponent(issueId)}`, {
+async function getIssues(issuesIds) {
+  const response = await jiraApi.get('search', {
     params: {
+      maxResults: 100,
+      jql: `id in (${issuesIds.join(',')})`,
       fields: 'status',
       expand: 'transitions',
     },
   })
-  const {
-    data: {
-      fields: { status },
-      transitions,
-    },
-  } = response
 
-  return {
-    currentStatusName: normaliseStatusName(status.name),
+  return response.data.issues.map((jiraIssueData) => ({
+    issueKey: jiraIssueData.key,
+    currentStatusName: normaliseStatusName(jiraIssueData.fields.status.name),
     availableTransitions: new Map(
-      transitions
+      jiraIssueData.transitions
         .filter((t) => t.isAvailable)
         .map((t) => [normaliseStatusName(t.name), Number.parseInt(t.id, 10)])
     ),
-  }
+  }))
 }
 
 const octokit = github.getOctokit(githubToken)
@@ -42496,7 +42493,11 @@ function matchIssueIds(text) {
   const keywordsRegExp = githubRequireKeywordPrefix
     ? `(?:${keywords.join('|')})\\s+`
     : ''
-  const urlRegExp = `https://${jiraDomain}/browse/([A-Z]+-\\d+)`
+  // Warning:
+  // It’s extremely important for this regexp to match only simple
+  // jira keys as extracted keys will be used in JQL queries.
+  const issueIdRegExp = '[A-Z]+-[0-9]+'
+  const urlRegExp = `https://${jiraDomain}/browse/(${issueIdRegExp})`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
   // Find all “Closes URL, URL…”
@@ -42559,38 +42560,42 @@ async function assignPrToIssues(issueIds, pr) {
   console.log('Assigned PR', `#${pr.number}`, 'to', issueIds.length, 'issue(s)')
 }
 
-async function transitionIssues(issueIds, newStatusName) {
+async function transitionIssues(issuesIds, newStatusName) {
+  const newStatusNameNormalised = normaliseStatusName(newStatusName)
+
+  const issuesData = await getIssues(issuesIds)
+
   return Promise.all(
-    issueIds.map(async (issueId) => {
-      const newStatusNameNormalised = normaliseStatusName(newStatusName)
-
-      const { currentStatusName, availableTransitions } =
-        await getIssue(issueId)
-
-      if (currentStatusName === newStatusNameNormalised) {
-        console.log(
-          'Did not transition',
-          issueId,
-          '— already in',
-          newStatusName
-        )
-      } else {
-        const newStatusId = availableTransitions.get(newStatusNameNormalised)
-        if (newStatusId == null) {
-          throw new Error(
-            `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
+    issuesData.map(
+      async ({ issueKey, currentStatusName, availableTransitions }) => {
+        if (currentStatusName === newStatusNameNormalised) {
+          console.log(
+            'Did not transition',
+            issueKey,
+            '— already in',
+            newStatusName
           )
+        } else {
+          const newStatusId = availableTransitions.get(newStatusNameNormalised)
+          if (newStatusId == null) {
+            throw new Error(
+              `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
+            )
+          }
+
+          await jiraApi.post(
+            `issue/${encodeURIComponent(issueKey)}/transitions`,
+            {
+              transition: {
+                id: newStatusId,
+              },
+            }
+          )
+
+          console.log('Transitioned', issueKey, 'to', newStatusName)
         }
-
-        await jiraApi.post(`issue/${encodeURIComponent(issueId)}/transitions`, {
-          transition: {
-            id: newStatusId,
-          },
-        })
-
-        console.log('Transitioned', issueId, 'to', newStatusName)
       }
-    })
+    )
   )
 }
 
