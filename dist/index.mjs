@@ -42338,16 +42338,19 @@ const githubToken = core.getInput('github-token')
 const githubRequireKeywordPrefix =
   core.getInput('github-require-keyword-prefix') ?? true
 
-const jiraDomain = core.getInput('jira-domain', { required: true })
+const jiraDomainInput = core.getInput('jira-domain', { required: true })
 const jiraUser = core.getInput('jira-user', { required: true })
 const jiraApiToken = core.getInput('jira-api-token', { required: true })
 const jiraStatusPrDraft = core.getInput('jira-status-pr-draft')
 const jiraStatusPrReady = core.getInput('jira-status-pr-ready')
 const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
 
+// https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
+const jiraApiBaseUrl = new URL(`https://${jiraDomainInput}`)
+jiraApiBaseUrl.pathname = '/rest/api/2'
+
 const jiraApi = lib_axios.create({
-  // https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
-  baseURL: `https://${jiraDomain}/rest/api/2`,
+  baseURL: jiraApiBaseUrl.toString(),
   headers: {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
@@ -42399,18 +42402,9 @@ async function getIssues(issuesKeys) {
   }))
 }
 
-async function extractResolvedIssueKeys(prBody, comments) {
-  console.log('Searching for issue ids')
+function extractResolvedIssueKeys(prBody, comments) {
+  const text = [prBody, ...comments.map((comment) => comment.body)].join('\0')
 
-  let issueIds = extractResolvedIssueKeysFromText(prBody || '')
-
-  for (const comment of comments) {
-    issueIds = [...issueIds, ...extractResolvedIssueKeysFromText(comment.body)]
-  }
-  return [...new Set(issueIds)]
-}
-
-function extractResolvedIssueKeysFromText(text) {
   const keywords = [
     'close',
     'closes',
@@ -42429,7 +42423,7 @@ function extractResolvedIssueKeysFromText(text) {
   // It’s extremely important for this regexp to match only simple
   // jira keys as extracted keys will be used in JQL queries.
   const issueKeyRegExp = '[A-Z]+-[0-9]+'
-  const urlRegExp = `https://${jiraDomain}/browse/(${issueKeyRegExp})`
+  const urlRegExp = `${jiraApiBaseUrl.origin}/browse/(${issueKeyRegExp})`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
   // Find all “Closes URL, URL…”
@@ -42440,7 +42434,7 @@ function extractResolvedIssueKeysFromText(text) {
       matches.flatMap((match) => {
         // Find URLs
         const urlMatches = match.match(new RegExp(urlRegExp, 'g'))
-        // Find issueId in the URL (only capture group in urlRegexp)
+        // Find issueId in the URL (only capture group in urlRegExp)
         const issueKeys = urlMatches.map(
           (url) => url.match(new RegExp(urlRegExp))[1]
         )
@@ -42549,7 +42543,7 @@ async function transitionIssues(issueKeys, newStatusName) {
 async function main() {
   try {
     const comments = await getPullRequestComments()
-    const issueIds = await extractResolvedIssueKeys(pr.body, comments)
+    const issueIds = extractResolvedIssueKeys(pr.body, comments)
 
     if (!issueIds.length) {
       if (context.eventName === 'pull_request' && payload.action === 'opened') {
