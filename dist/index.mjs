@@ -42341,9 +42341,9 @@ const githubRequireKeywordPrefix =
 const jiraDomain = core.getInput('jira-domain', { required: true })
 const jiraUser = core.getInput('jira-user', { required: true })
 const jiraApiToken = core.getInput('jira-api-token', { required: true })
-const jiraListPrDraft = core.getInput('jira-list-pr-draft')
-const jiraListPrReady = core.getInput('jira-list-pr-ready')
-const jiraListPrMerged = core.getInput('jira-list-pr-merged')
+const jiraStatusPrDraft = core.getInput('jira-status-pr-draft')
+const jiraStatusPrReady = core.getInput('jira-status-pr-ready')
+const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
 
 const jiraApi = lib_axios.create({
   // https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
@@ -42573,28 +42573,28 @@ async function main() {
     await assignPrToIssues(issueIds)
 
     if (pr.state === 'open' && isDraft) {
-      if (!jiraListPrDraft) {
+      if (!jiraStatusPrDraft) {
         console.log(
           'No draft PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraListPrDraft)
+        await transitionIssues(issueIds, jiraStatusPrDraft)
       }
     } else if (pr.state === 'open' && !isDraft) {
-      if (!jiraListPrReady) {
+      if (!jiraStatusPrReady) {
         console.log(
           'No ready PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraListPrReady)
+        await transitionIssues(issueIds, jiraStatusPrReady)
       }
     } else if (pr.state === 'closed') {
-      if (!jiraListPrMerged) {
+      if (!jiraStatusPrMerged) {
         console.log(
           'No merged PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraListPrMerged)
+        await transitionIssues(issueIds, jiraStatusPrMerged)
       }
     } else {
       console.log(
