@@ -29,10 +29,14 @@ jobs:
           # Hint: Set these on an organisation level and override in repos only when necessary
           jira-domain: ${{ vars.JIRA_DOMAIN }}
           jira-user: ${{ secrets.JIRA_USER }}
+          # Create one at: https://id.atlassian.com/manage-profile/security/api-tokens
+          # Note that user whose API token is used, will “touch” all of
+          # the issues, so it’s best to create a dedicated user for
+          # this sort of things.
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
-          jira-list-pr-draft: ${{ vars.JIRA_LIST_PR_DRAFT }}
-          jira-list-pr-ready: ${{ vars.JIRA_LIST_PR_READY }}
-          jira-list-pr-merged: ${{ vars.JIRA_LIST_PR_MERGED }}
+          jira-status-pr-draft: ${{ vars.JIRA_STATUS_PR_DRAFT }}
+          jira-status-pr-ready: ${{ vars.JIRA_STATUS_PR_READY }}
+          jira-status-pr-merged: ${{ vars.JIRA_STATUS_PR_MERGED }}
 ```
 
 ## Debugging

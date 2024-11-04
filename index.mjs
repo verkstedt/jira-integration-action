@@ -5,28 +5,34 @@ import * as github from '@actions/github'
 // Use these for local debugging.
 // You will also need `mock-inputs.json` with input values.
 //
-// import * as core from './mock.mjs'
-// import * as github from './mock.mjs'
+// import * as mock from './mock.mjs'
+//
+// const core = mock
+// const github = mock
 
 const {
   context,
   context: { payload, repo },
 } = github
+const pr = payload.pull_request || payload.issue
 
 const githubToken = core.getInput('github-token')
 const githubRequireKeywordPrefix =
   core.getInput('github-require-keyword-prefix') ?? true
 
-const jiraDomain = core.getInput('jira-domain', { required: true })
+const jiraDomainInput = core.getInput('jira-domain', { required: true })
 const jiraUser = core.getInput('jira-user', { required: true })
 const jiraApiToken = core.getInput('jira-api-token', { required: true })
-const jiraListPrDraft = core.getInput('jira-list-pr-draft')
-const jiraListPrReady = core.getInput('jira-list-pr-ready')
-const jiraListPrMerged = core.getInput('jira-list-pr-merged')
+const jiraStatusPrDraft = core.getInput('jira-status-pr-draft')
+const jiraStatusPrReady = core.getInput('jira-status-pr-ready')
+const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
+
+// https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
+const jiraApiBaseUrl = new URL(`https://${jiraDomainInput}`)
+jiraApiBaseUrl.pathname = '/rest/api/2'
 
 const jiraApi = axios.create({
-  // https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
-  baseURL: `https://${jiraDomain}/rest/api/2`,
+  baseURL: jiraApiBaseUrl.toString(),
   headers: {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
@@ -49,121 +55,38 @@ jiraApi.interceptors.response.use(
   }
 )
 
-async function getIssueTransitionIds(issueId) {
-  const response = await jiraApi.get(
-    `issue/${encodeURIComponent(issueId)}/transitions`
-  )
-  const { transitions } = response.data
-  return new Map(
-    transitions
-      .filter((t) => t.isAvailable)
-      .map((t) => [t.name.toLowerCase(), Number.parseInt(t.id, 10)])
-  )
-}
-
 const octokit = github.getOctokit(githubToken)
 const repoOwner = (payload.organization || payload.repository.owner).login
 const issueNumber = (payload.pull_request || payload.issue).number
 
-async function main() {
-  const pr = payload.pull_request || payload.issue
-
-  try {
-    const comments = await getPullRequestComments()
-    const issueIds = await getIssueIds(pr.body, comments)
-
-    if (!issueIds.length) {
-      if (context.eventName === 'pull_request' && payload.action === 'opened') {
-        octokit.rest.issues.createComment({
-          issue_number: pr.number,
-          owner: repo.owner,
-          repo: repo.repo,
-          body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
-        })
-      }
-
-      console.log('Could not find issue IDs')
-      return
-    }
-    console.log('Found issue IDs:', issueIds.join(', '))
-
-    // Treat PRs with “draft” or “wip” in brackets at the start or
-    // end of the titles like drafts. Useful for orgs on unpaid
-    // plans which doesn’t support PR drafts.
-    const titleDraftRegExp =
-      /^(?:\s*[\[(](?:wip|draft)[\])]\s+)|(?:\s+[\[(](?:wip|draft)[\])]\s*)$/i
-    const isRealDraft = pr.draft === true
-    const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
-    const isDraft = isRealDraft || isFauxDraft
-
-    await assignPrToIssues(issueIds, pr)
-
-    if (pr.state === 'open' && isDraft) {
-      if (!jiraListPrDraft) {
-        console.log(
-          'No draft PR list name provided, skipping transitioning issues'
-        )
-      } else {
-        await transitionIssue(issueIds, jiraListPrDraft)
-        console.log(
-          'Transitioned',
-          issueIds.length,
-          'issue(s) to',
-          jiraListPrDraft
-        )
-      }
-    } else if (pr.state === 'open' && !isDraft) {
-      if (!jiraListPrReady) {
-        console.log(
-          'No ready PR list name provided, skipping transitioning issues'
-        )
-      } else {
-        await transitionIssue(issueIds, jiraListPrReady)
-        console.log(
-          'Transitioned',
-          issueIds.length,
-          'issue(s) to',
-          jiraListPrReady
-        )
-      }
-    } else if (pr.state === 'closed') {
-      if (!jiraListPrMerged) {
-        console.log(
-          'No merged PR list name provided, skipping transitioning issues'
-        )
-      } else {
-        await transitionIssue(issueIds, jiraListPrMerged)
-        console.log(
-          'Transitioned',
-          issueIds.length,
-          'issue(s) to',
-          jiraListPrMerged
-        )
-      }
-    } else {
-      console.log(
-        'Skipping transitioning the issues:',
-        `pr.state=${pr.state},`,
-        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
-      )
-    }
-  } catch (error) {
-    core.setFailed(error)
-  }
+function normaliseStatusName(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-async function getIssueIds(prBody, comments) {
-  console.log('Searching for issue ids')
+async function getIssues(issuesKeys) {
+  const response = await jiraApi.get('search', {
+    params: {
+      maxResults: 100,
+      jql: `id in (${issuesKeys.join(',')})`,
+      fields: 'status',
+      expand: 'transitions',
+    },
+  })
 
-  let issueIds = matchIssueIds(prBody || '')
-
-  for (const comment of comments) {
-    issueIds = [...issueIds, ...matchIssueIds(comment.body)]
-  }
-  return [...new Set(issueIds)]
+  return response.data.issues.map((jiraIssueData) => ({
+    issueKey: jiraIssueData.key,
+    currentStatusName: normaliseStatusName(jiraIssueData.fields.status.name),
+    availableTransitions: new Map(
+      jiraIssueData.transitions
+        .filter((t) => t.isAvailable)
+        .map((t) => [normaliseStatusName(t.name), Number.parseInt(t.id, 10)])
+    ),
+  }))
 }
 
-function matchIssueIds(text) {
+function extractResolvedIssueKeys(prBody, comments) {
+  const text = [prBody, ...comments.map((comment) => comment.body)].join('\0')
+
   const keywords = [
     'close',
     'closes',
@@ -178,7 +101,11 @@ function matchIssueIds(text) {
   const keywordsRegExp = githubRequireKeywordPrefix
     ? `(?:${keywords.join('|')})\\s+`
     : ''
-  const urlRegExp = `https://${jiraDomain}/browse/([A-Z]+-\\d+)`
+  // Warning:
+  // It’s extremely important for this regexp to match only simple
+  // jira keys as extracted keys will be used in JQL queries.
+  const issueKeyRegExp = '[A-Z]+-[0-9]+'
+  const urlRegExp = `${jiraApiBaseUrl.origin}/browse/(${issueKeyRegExp})`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
   // Find all “Closes URL, URL…”
@@ -189,11 +116,11 @@ function matchIssueIds(text) {
       matches.flatMap((match) => {
         // Find URLs
         const urlMatches = match.match(new RegExp(urlRegExp, 'g'))
-        // Find issueId in the URL (only capture group in urlRegexp)
-        const issueIds = urlMatches.map(
+        // Find issueId in the URL (only capture group in urlRegExp)
+        const issueKeys = urlMatches.map(
           (url) => url.match(new RegExp(urlRegExp))[1]
         )
-        return issueIds
+        return issueKeys
       })
     )
   )
@@ -210,10 +137,19 @@ async function getPullRequestComments() {
   return response.data
 }
 
-async function assignPrToIssues(issueIds, pr) {
+async function nagToLinkJiraIssue() {
+  await octokit.rest.issues.createComment({
+    issue_number: pr.number,
+    owner: repo.owner,
+    repo: repo.repo,
+    body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
+  })
+}
+
+async function assignPrToIssues(issueKeys) {
   await Promise.all(
-    issueIds.map(async (issueId) => {
-      console.log('Assigning PR', `#${pr.number}`, 'to issue', issueId)
+    issueKeys.map(async (issueKey) => {
+      console.log('Assigning PR', `#${pr.number}`, 'to issue', issueKey)
 
       const prLinkObject = {
         url: pr.html_url,
@@ -223,14 +159,14 @@ async function assignPrToIssues(issueIds, pr) {
       }
 
       const { data: links } = await jiraApi.get(
-        `issue/${encodeURIComponent(issueId)}/remotelink`
+        `issue/${encodeURIComponent(issueKey)}/remotelink`
       )
 
       const alreadyAssigned = links.some(
         (link) => link.object.url === prLinkObject.url
       )
       if (!alreadyAssigned) {
-        await jiraApi.post(`issue/${encodeURIComponent(issueId)}/remotelink`, {
+        await jiraApi.post(`issue/${encodeURIComponent(issueKey)}/remotelink`, {
           application: {},
           object: prLinkObject,
         })
@@ -238,30 +174,114 @@ async function assignPrToIssues(issueIds, pr) {
     })
   )
 
-  console.log('Assigned PR', `#${pr.number}`, 'to', issueIds.length, 'issue(s)')
+  console.log(
+    'Assigned PR',
+    `#${pr.number}`,
+    'to',
+    issueKeys.length,
+    'issue(s)'
+  )
 }
 
-async function transitionIssue(issueIds, listName) {
+async function transitionIssues(issueKeys, newStatusName) {
+  const newStatusNameNormalised = normaliseStatusName(newStatusName)
+
+  const issuesData = await getIssues(issueKeys)
+
   return Promise.all(
-    issueIds.map(async (issueId) => {
-      console.log('Transitioned issue', issueId, 'to', listName)
+    issuesData.map(
+      async ({ issueKey, currentStatusName, availableTransitions }) => {
+        if (currentStatusName === newStatusNameNormalised) {
+          console.log(
+            'Did not transition',
+            issueKey,
+            '— already in',
+            newStatusName
+          )
+        } else {
+          const newStatusId = availableTransitions.get(newStatusNameNormalised)
+          if (newStatusId == null) {
+            throw new Error(
+              `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
+            )
+          }
 
-      const transitionIds = await getIssueTransitionIds(issueId)
+          await jiraApi.post(
+            `issue/${encodeURIComponent(issueKey)}/transitions`,
+            {
+              transition: {
+                id: newStatusId,
+              },
+            }
+          )
 
-      const listId = transitionIds.get(listName.toLowerCase())
-      if (listId == null) {
-        throw new Error(
-          `List name ${listName} not found in JIRA. Available lists: ${Array.from(transitionIds.keys()).join(', ')}`
-        )
+          console.log('Transitioned', issueKey, 'to', newStatusName)
+        }
+      }
+    )
+  )
+}
+
+async function main() {
+  try {
+    const comments = await getPullRequestComments()
+    const issueIds = extractResolvedIssueKeys(pr.body, comments)
+
+    if (!issueIds.length) {
+      if (context.eventName === 'pull_request' && payload.action === 'opened') {
+        void nagToLinkJiraIssue()
       }
 
-      return jiraApi.post(`issue/${encodeURIComponent(issueId)}/transitions`, {
-        transition: {
-          id: listId,
-        },
-      })
-    })
-  )
+      console.log('Could not find issue IDs')
+      return
+    }
+    console.log('Found issue IDs:', issueIds.join(', '))
+
+    // Treat PRs with “draft” or “wip” in brackets at the start or
+    // end of the titles like drafts. Useful for orgs on unpaid
+    // plans which doesn’t support PR drafts.
+    const titleDraftRegExp =
+      /^(?:\s*[\[(](?:wip|draft)[\])]\s+)|(?:\s+[\[(](?:wip|draft)[\])]\s*)$/i
+    const isRealDraft = pr.draft === true
+    const isFauxDraft = Boolean(pr.title.match(titleDraftRegExp))
+    const isDraft = isRealDraft || isFauxDraft
+
+    await assignPrToIssues(issueIds)
+
+    if (pr.state === 'open' && isDraft) {
+      if (!jiraStatusPrDraft) {
+        console.log(
+          'No draft PR status name provided, skipping transitioning issues'
+        )
+      } else {
+        await transitionIssues(issueIds, jiraStatusPrDraft)
+      }
+    } else if (pr.state === 'open' && !isDraft) {
+      if (!jiraStatusPrReady) {
+        console.log(
+          'No ready PR status name provided, skipping transitioning issues'
+        )
+      } else {
+        await transitionIssues(issueIds, jiraStatusPrReady)
+      }
+    } else if (pr.state === 'closed') {
+      if (!jiraStatusPrMerged) {
+        console.log(
+          'No merged PR status name provided, skipping transitioning issues'
+        )
+      } else {
+        await transitionIssues(issueIds, jiraStatusPrMerged)
+      }
+    } else {
+      console.log(
+        'Skipping transitioning the issues:',
+        `pr.state=${pr.state},`,
+        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
+      )
+    }
+  } catch (error) {
+    core.setFailed(error)
+  }
 }
 
 main()

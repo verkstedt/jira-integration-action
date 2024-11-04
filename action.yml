@@ -8,9 +8,6 @@ inputs:
   github-token:
     description: 'Github token, https://docs.github.com/en/actions/reference/authentication-in-a-workflow'
     required: true
-  github-require-keyword-prefix:
-    description: 'When true match only URLs prefixed with “Closes” etc just like https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword. Defaults to true.'
-    required: false
   jira-domain:
     description: 'Jira domain, e.g. example.atlassian.net'
     required: true
@@ -18,16 +15,16 @@ inputs:
     description: 'Email address of the Jira user'
     required: true
   jira-api-token:
-    description: 'Jira API key, get it on <https://id.atlassian.com/manage-profile/security/api-tokens>'
+    description: 'Jira API key, get it on <https://id.atlassian.com/manage-profile/security/api-tokens>. Note that user whose API token is used, will “touch” all of the issues, so it’s best to create a dedicated user for this sort of things.'
     required: true
-  jira-list-pr-draft:
-    description: 'Name of the column to move tickets to when PR is in draft'
+  jira-status-pr-draft:
+    description: 'Name of the status to transition issue to when PR is in draft'
     required: false
-  jira-list-pr-ready:
-    description: 'Name of the column to move tickets to when PR is ready to review'
+  jira-status-pr-ready:
+    description: 'Name of the status to transition issue to when PR is ready to review'
     required: false
-  jira-list-pr-merged:
-    description: 'Name of the column to move tickets to when PR is merged'
+  jira-status-pr-merged:
+    description: 'Name of the status to transition issue to when PR is merged'
     required: false
 runs:
   using: node20
