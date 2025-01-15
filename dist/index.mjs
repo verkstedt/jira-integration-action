@@ -42422,7 +42422,7 @@ function extractResolvedIssueKeys(prBody, comments) {
   // Warning:
   // It’s extremely important for this regexp to match only simple
   // jira keys as extracted keys will be used in JQL queries.
-  const issueKeyRegExp = '[A-Z]+-[0-9]+'
+  const issueKeyRegExp = '[A-Z][A-Z0-9]*-[0-9]+'
   const urlRegExp = `${jiraApiBaseUrl.origin}/browse/(${issueKeyRegExp})`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
