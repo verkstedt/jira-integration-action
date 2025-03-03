@@ -29,7 +29,7 @@ const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
 
 // https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
 const jiraApiBaseUrl = new URL(`https://${jiraDomainInput}`)
-jiraApiBaseUrl.pathname = '/rest/api/2'
+jiraApiBaseUrl.pathname = '/rest/'
 
 const jiraApi = axios.create({
   baseURL: jiraApiBaseUrl.toString(),
@@ -64,7 +64,7 @@ function normaliseStatusName(name) {
 }
 
 async function getIssues(issuesKeys) {
-  const response = await jiraApi.get('search', {
+  const response = await jiraApi.get('api/2/search', {
     params: {
       maxResults: 100,
       jql: `id in (${issuesKeys.join(',')})`,
@@ -104,7 +104,7 @@ function extractResolvedIssueKeys(prBody, comments) {
   // Warning:
   // It’s extremely important for this regexp to match only simple
   // jira keys as extracted keys will be used in JQL queries.
-  const issueKeyRegExp = '[A-Z][A-Z0-9]*-[0-9]+'
+  const issueKeyRegExp = '[A-Z][A-Z0-9]+-[0-9]+'
   const urlRegExp = `${jiraApiBaseUrl.origin}/browse/(${issueKeyRegExp})`
   const closesRegExp = `${keywordsRegExp}${urlRegExp}(?:\\s*,\\s*${urlRegExp})*`
 
@@ -159,17 +159,20 @@ async function assignPrToIssues(issueKeys) {
       }
 
       const { data: links } = await jiraApi.get(
-        `issue/${encodeURIComponent(issueKey)}/remotelink`
+        `api/2/issue/${encodeURIComponent(issueKey)}/remotelink`
       )
 
       const alreadyAssigned = links.some(
         (link) => link.object.url === prLinkObject.url
       )
       if (!alreadyAssigned) {
-        await jiraApi.post(`issue/${encodeURIComponent(issueKey)}/remotelink`, {
-          application: {},
-          object: prLinkObject,
-        })
+        await jiraApi.post(
+          `api/2/issue/${encodeURIComponent(issueKey)}/remotelink`,
+          {
+            application: {},
+            object: prLinkObject,
+          }
+        )
       }
     })
   )
@@ -183,39 +186,93 @@ async function assignPrToIssues(issueKeys) {
   )
 }
 
+function escapeJqlString(str) {
+  return str.replace(/(["\\])/g, '\\$1')
+}
+
+async function getLastIssueInStatusKey(statusName) {
+  const statusNameNormalised = normaliseStatusName(statusName)
+  const response = await jiraApi.get('api/2/search', {
+    params: {
+      maxResults: 1,
+      jql: `status="${escapeJqlString(statusNameNormalised)}" ORDER BY Rank DESC`,
+      fields: 'key',
+    },
+  })
+  const key = response.data.issues.at(0)?.key
+  console.log('Last issue in', statusName, 'is', key)
+  return key
+}
+
 async function transitionIssues(issueKeys, newStatusName) {
   const newStatusNameNormalised = normaliseStatusName(newStatusName)
 
   const issuesData = await getIssues(issueKeys)
 
-  return Promise.all(
-    issuesData.map(
-      async ({ issueKey, currentStatusName, availableTransitions }) => {
-        if (currentStatusName === newStatusNameNormalised) {
+  const issuesByNewStatus = new Map()
+  issuesData.forEach((issueData) => {
+    const { currentStatusName } = issueData
+    const newStatus = issuesByNewStatus.get(currentStatusName)
+    if (newStatus) {
+      newStatus.push(issueData)
+    } else {
+      issuesByNewStatus.set(currentStatusName, [issueData])
+    }
+  })
+
+  await Promise.all(
+    Array.from(issuesByNewStatus.entries()).map(
+      async ([currentStatusName, sameStatusIssues]) => {
+        const lastIssueInStatusKey =
+          await getLastIssueInStatusKey(newStatusName)
+
+        const transitionedIssueKeys = await Promise.all(
+          sameStatusIssues
+            .map(async ({ issueKey, availableTransitions }) => {
+              if (currentStatusName === newStatusNameNormalised) {
+                console.log(
+                  'Did not transition',
+                  issueKey,
+                  '— already in',
+                  newStatusName
+                )
+              } else {
+                const newStatusId = availableTransitions.get(
+                  newStatusNameNormalised
+                )
+                if (newStatusId == null) {
+                  throw new Error(
+                    `List name “${newStatusName}” not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
+                  )
+                }
+
+                await jiraApi.post(
+                  `api/2/issue/${encodeURIComponent(issueKey)}/transitions`,
+                  {
+                    transition: {
+                      id: newStatusId,
+                    },
+                  }
+                )
+
+                console.log('Transitioned', issueKey, 'to', newStatusName)
+
+                return issueKey
+              }
+            })
+            .filter(Boolean)
+        )
+
+        // Move all newly transitioned issues to the end of the list
+        if (transitionedIssueKeys.length > 0 && lastIssueInStatusKey) {
+          await jiraApi.put('agile/1.0/issue/rank', {
+            issues: transitionedIssueKeys,
+            rankAfterIssue: lastIssueInStatusKey,
+          })
           console.log(
-            'Did not transition',
-            issueKey,
-            '— already in',
-            newStatusName
+            `Moved issues issues to the end of column '${newStatusName}':`,
+            ...transitionedIssueKeys
           )
-        } else {
-          const newStatusId = availableTransitions.get(newStatusNameNormalised)
-          if (newStatusId == null) {
-            throw new Error(
-              `List name ${newStatusName} not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
-            )
-          }
-
-          await jiraApi.post(
-            `issue/${encodeURIComponent(issueKey)}/transitions`,
-            {
-              transition: {
-                id: newStatusId,
-              },
-            }
-          )
-
-          console.log('Transitioned', issueKey, 'to', newStatusName)
         }
       }
     )
