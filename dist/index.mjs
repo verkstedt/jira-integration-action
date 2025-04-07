@@ -42603,7 +42603,12 @@ async function main() {
     const issueIds = extractResolvedIssueKeys(pr.body, comments)
 
     if (!issueIds.length) {
-      if (context.eventName === 'pull_request' && payload.action === 'opened') {
+      if (
+        context.eventName === 'pull_request' &&
+        payload.action === 'opened' &&
+        pr.base.ref !== 'production' &&
+        pr.head.ref !== 'main'
+      ) {
         void nagToLinkJiraIssue()
       }
 
