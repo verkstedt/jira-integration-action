@@ -55,7 +55,7 @@ const jiraApi = axios.create({
 })
 jiraApi.interceptors.response.use(null, onRejected)
 
-// https://docs.atlassian.com/jira-software/REST/7.0.4/
+// https://developer.atlassian.com/cloud/jira/software/rest/
 const jiraAgileApiBaseUrl = new URL(
   '/rest/agile/1.0/',
   `https://${jiraDomainInput}`
