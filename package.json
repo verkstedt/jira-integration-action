@@ -2,7 +2,7 @@
   "name": "@verkstedt/jira-integration-action",
   "version": "6.1.2",
   "license": "MIT",
-  "description": "GitHub Action to integrate Github pull requests with Trello cards",
+  "description": "GitHub Action to integrate Github pull requests with Jira issues",
   "author": {
     "name": "verkstet GmbH",
     "email": "info@verkstedt.com"
