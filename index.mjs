@@ -27,33 +27,45 @@ const jiraStatusPrDraft = core.getInput('jira-status-pr-draft')
 const jiraStatusPrReady = core.getInput('jira-status-pr-ready')
 const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
 
-// https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/
-const jiraApiBaseUrl = new URL(`https://${jiraDomainInput}`)
-jiraApiBaseUrl.pathname = '/rest/'
+const auth = {
+  username: jiraUser,
+  password: jiraApiToken,
+}
 
+const headers = {
+  'Accept': 'application/json',
+  'Content-Type': 'application/json',
+}
+
+/** @param {import('axios').AxiosError} error */
+function onRejected(error) {
+  console.error(
+    `Error ${error.response.status} ${error.response.statusText}`,
+    error.request.path,
+    error.response.data
+  )
+}
+
+// https://developer.atlassian.com/cloud/jira/platform/rest/v3/
+const jiraApiBaseUrl = new URL('/rest/api/3/', `https://${jiraDomainInput}`)
 const jiraApi = axios.create({
   baseURL: jiraApiBaseUrl.toString(),
-  headers: {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json',
-  },
-  auth: {
-    username: jiraUser,
-    password: jiraApiToken,
-  },
+  headers,
+  auth,
 })
+jiraApi.interceptors.response.use(null, onRejected)
 
-jiraApi.interceptors.response.use(
-  null,
-  /** @param {import('axios').AxiosError} error */
-  (error) => {
-    console.error(
-      `Error ${error.response.status} ${error.response.statusText}`,
-      error.request.path,
-      error.response.data
-    )
-  }
+// https://docs.atlassian.com/jira-software/REST/7.0.4/
+const jiraAgileApiBaseUrl = new URL(
+  '/rest/agile/1.0/',
+  `https://${jiraDomainInput}`
 )
+const jiraAgileApi = axios.create({
+  baseURL: jiraAgileApiBaseUrl.toString(),
+  headers,
+  auth,
+})
+jiraAgileApi.interceptors.response.use(null, onRejected)
 
 const octokit = github.getOctokit(githubToken)
 const repoOwner = (payload.organization || payload.repository.owner).login
@@ -64,7 +76,7 @@ function normaliseStatusName(name) {
 }
 
 async function getIssues(issuesKeys) {
-  const response = await jiraApi.get('api/3/search', {
+  const response = await jiraApi.get('search/jql', {
     params: {
       maxResults: 100,
       jql: `id in (${issuesKeys.join(',')})`,
@@ -159,20 +171,17 @@ async function assignPrToIssues(issueKeys) {
       }
 
       const { data: links } = await jiraApi.get(
-        `api/2/issue/${encodeURIComponent(issueKey)}/remotelink`
+        `issue/${encodeURIComponent(issueKey)}/remotelink`
       )
 
       const alreadyAssigned = links.some(
         (link) => link.object.url === prLinkObject.url
       )
       if (!alreadyAssigned) {
-        await jiraApi.post(
-          `api/2/issue/${encodeURIComponent(issueKey)}/remotelink`,
-          {
-            application: {},
-            object: prLinkObject,
-          }
-        )
+        await jiraApi.post(`issue/${encodeURIComponent(issueKey)}/remotelink`, {
+          application: {},
+          object: prLinkObject,
+        })
       }
     })
   )
@@ -192,7 +201,7 @@ function escapeJqlString(str) {
 
 async function getLastIssueInStatusKey(statusName) {
   const statusNameNormalised = normaliseStatusName(statusName)
-  const response = await jiraApi.get('api/3/search', {
+  const response = await jiraApi.get('search/jql', {
     params: {
       maxResults: 1,
       jql: `status="${escapeJqlString(statusNameNormalised)}" ORDER BY Rank DESC`,
@@ -247,7 +256,7 @@ async function transitionIssues(issueKeys, newStatusName) {
                 }
 
                 await jiraApi.post(
-                  `api/2/issue/${encodeURIComponent(issueKey)}/transitions`,
+                  `issue/${encodeURIComponent(issueKey)}/transitions`,
                   {
                     transition: {
                       id: newStatusId,
@@ -265,7 +274,7 @@ async function transitionIssues(issueKeys, newStatusName) {
 
         // Move all newly transitioned issues to the end of the list
         if (transitionedIssueKeys.length > 0 && lastIssueInStatusKey) {
-          await jiraApi.put('agile/1.0/issue/rank', {
+          await jiraAgileApi.put('issue/rank', {
             issues: transitionedIssueKeys,
             rankAfterIssue: lastIssueInStatusKey,
           })
