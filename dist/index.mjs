@@ -42382,7 +42382,7 @@ function normaliseStatusName(name) {
 }
 
 async function getIssues(issuesKeys) {
-  const response = await jiraApi.get('api/2/search', {
+  const response = await jiraApi.get('api/3/search', {
     params: {
       maxResults: 100,
       jql: `id in (${issuesKeys.join(',')})`,
@@ -42510,7 +42510,7 @@ function escapeJqlString(str) {
 
 async function getLastIssueInStatusKey(statusName) {
   const statusNameNormalised = normaliseStatusName(statusName)
-  const response = await jiraApi.get('api/2/search', {
+  const response = await jiraApi.get('api/3/search', {
     params: {
       maxResults: 1,
       jql: `status="${escapeJqlString(statusNameNormalised)}" ORDER BY Rank DESC`,
@@ -42606,8 +42606,7 @@ async function main() {
       if (
         context.eventName === 'pull_request' &&
         payload.action === 'opened' &&
-        pr.base.ref !== 'production' &&
-        pr.head.ref !== 'main'
+        !['main', 'production'].includes(pr.head.ref)
       ) {
         void nagToLinkJiraIssue()
       }
