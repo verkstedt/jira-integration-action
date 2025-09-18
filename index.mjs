@@ -235,9 +235,9 @@ async function transitionIssues(issueKeys, newStatusName) {
         const lastIssueInStatusKey =
           await getLastIssueInStatusKey(newStatusName)
 
-        const transitionedIssueKeys = await Promise.all(
-          sameStatusIssues
-            .map(async ({ issueKey, availableTransitions }) => {
+        const transitionedIssueKeys = (
+          await Promise.all(
+            sameStatusIssues.map(async ({ issueKey, availableTransitions }) => {
               if (currentStatusName === newStatusNameNormalised) {
                 console.log(
                   'Did not transition',
@@ -269,8 +269,8 @@ async function transitionIssues(issueKeys, newStatusName) {
                 return issueKey
               }
             })
-            .filter(Boolean)
-        )
+          )
+        ).filter(Boolean)
 
         // Move all newly transitioned issues to the end of the list
         if (transitionedIssueKeys.length > 0 && lastIssueInStatusKey) {
