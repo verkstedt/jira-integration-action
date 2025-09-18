@@ -1,5 +1,5 @@
 {
-  "name": "@remato/trello-integration-action",
+  "name": "@verkstedt/jira-integration-action",
   "version": "6.1.2",
   "license": "MIT",
   "description": "GitHub Action to integrate Github pull requests with Trello cards",
