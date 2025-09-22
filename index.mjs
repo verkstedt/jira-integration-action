@@ -283,7 +283,7 @@ async function transitionIssues(issueKeys, newStatusName) {
             rankAfterIssue: lastIssueInStatusKey,
           })
           console.log(
-            `Moved issues issues to the end of column '${newStatusName}':`,
+            `Moved issues to the end of column '${newStatusName}':`,
             ...transitionedIssueKeys
           )
         }
