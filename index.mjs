@@ -27,15 +27,17 @@ const jiraStatusPrDraft = core.getInput('jira-status-pr-draft')
 const jiraStatusPrReady = core.getInput('jira-status-pr-ready')
 const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
 
+const headers = {
+  'Accept': 'application/json',
+  'Content-Type': 'application/json',
+}
+
 const auth = {
   username: jiraUser,
   password: jiraApiToken,
 }
 
-const headers = {
-  'Accept': 'application/json',
-  'Content-Type': 'application/json',
-}
+const timeoutMs = 10_000
 
 /** @param {import('axios').AxiosError} error */
 function onRejected(error) {
@@ -52,6 +54,7 @@ const jiraApi = axios.create({
   baseURL: jiraApiBaseUrl.toString(),
   headers,
   auth,
+  timeout: timeoutMs,
 })
 jiraApi.interceptors.response.use(null, onRejected)
 
@@ -64,6 +67,7 @@ const jiraAgileApi = axios.create({
   baseURL: jiraAgileApiBaseUrl.toString(),
   headers,
   auth,
+  timeout: timeoutMs,
 })
 jiraAgileApi.interceptors.response.use(null, onRejected)
 

@@ -42345,15 +42345,17 @@ const jiraStatusPrDraft = core.getInput('jira-status-pr-draft')
 const jiraStatusPrReady = core.getInput('jira-status-pr-ready')
 const jiraStatusPrMerged = core.getInput('jira-status-pr-merged')
 
+const headers = {
+  'Accept': 'application/json',
+  'Content-Type': 'application/json',
+}
+
 const auth = {
   username: jiraUser,
   password: jiraApiToken,
 }
 
-const headers = {
-  'Accept': 'application/json',
-  'Content-Type': 'application/json',
-}
+const timeoutMs = 10_000
 
 /** @param {import('axios').AxiosError} error */
 function onRejected(error) {
@@ -42370,10 +42372,11 @@ const jiraApi = lib_axios.create({
   baseURL: jiraApiBaseUrl.toString(),
   headers,
   auth,
+  timeout: timeoutMs,
 })
 jiraApi.interceptors.response.use(null, onRejected)
 
-// https://docs.atlassian.com/jira-software/REST/7.0.4/
+// https://developer.atlassian.com/cloud/jira/software/rest/
 const jiraAgileApiBaseUrl = new URL(
   '/rest/agile/1.0/',
   `https://${jiraDomainInput}`
@@ -42382,6 +42385,7 @@ const jiraAgileApi = lib_axios.create({
   baseURL: jiraAgileApiBaseUrl.toString(),
   headers,
   auth,
+  timeout: timeoutMs,
 })
 jiraAgileApi.interceptors.response.use(null, onRejected)
 
