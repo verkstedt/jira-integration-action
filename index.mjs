@@ -18,7 +18,7 @@ const pr = payload.pull_request || payload.issue
 
 const githubToken = core.getInput('github-token')
 const githubRequireKeywordPrefix =
-  core.getInput('github-require-keyword-prefix') ?? true
+  core.getInput('github-require-keyword-prefix') !== 'false'
 
 const jiraDomainInput = core.getInput('jira-domain', { required: true })
 const jiraUser = core.getInput('jira-user', { required: true })
