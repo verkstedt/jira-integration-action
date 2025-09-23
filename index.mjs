@@ -75,10 +75,37 @@ const octokit = github.getOctokit(githubToken)
 const repoOwner = (payload.organization || payload.repository.owner).login
 const issueNumber = (payload.pull_request || payload.issue).number
 
+/**
+ * GitHub data
+ *
+ * @typedef {object} PullRequestComment
+ * @property {string} body
+ */
+
+/**
+ * Jira data
+ *
+ * @typedef {string} IssueKey
+ * @typedef {string} StatusName
+ *
+ * @typedef {object} IssueData
+ * @property {string} issueKey
+ * @property {StatusName} currentStatusName
+ * @property {Map<StatusName, number>} availableTransitions
+ */
+
+/**
+ * @param {string} name
+ * @return {StatusName}
+ */
 function normaliseStatusName(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+/**
+ * @param {Array<IssueKey>} issuesKeys
+ * @return {Promise<Array<IssueData>>}
+ */
 async function getIssues(issuesKeys) {
   const response = await jiraApi.get('search/jql', {
     params: {
@@ -100,6 +127,11 @@ async function getIssues(issuesKeys) {
   }))
 }
 
+/**
+ * @param {string} prBody
+ * @param {Array<PullRequestComment>} comments
+ * @return {Array<IssueKey>}
+ */
 function extractResolvedIssueKeys(prBody, comments) {
   const text = [prBody, ...comments.map((comment) => comment.body)].join('\0')
 
@@ -142,6 +174,9 @@ function extractResolvedIssueKeys(prBody, comments) {
   )
 }
 
+/**
+ * @return {Promise<Array<PullRequestComment>>}
+ */
 async function getPullRequestComments() {
   console.log('Requesting pull request comments')
 
@@ -162,6 +197,10 @@ async function nagToLinkJiraIssue() {
   })
 }
 
+/**
+ * @param {Array<IssueKey>} issueKeys
+ * @return {Promise<void>}
+ */
 async function assignPrToIssues(issueKeys) {
   await Promise.all(
     issueKeys.map(async (issueKey) => {
@@ -203,6 +242,10 @@ function escapeJqlString(str) {
   return str.replace(/(["\\])/g, '\\$1')
 }
 
+/**
+ * @param {StatusName} statusName
+ * @return {Promise<IssueKey|undefined>}
+ */
 async function getLastIssueInStatusKey(statusName) {
   const statusNameNormalised = normaliseStatusName(statusName)
   const response = await jiraApi.get('search/jql', {
@@ -217,11 +260,17 @@ async function getLastIssueInStatusKey(statusName) {
   return key
 }
 
+/**
+ * @param {Array<IssueKey>} issueKeys
+ * @param {StatusName} newStatusName
+ * @return {Promise<void>}
+ */
 async function transitionIssues(issueKeys, newStatusName) {
   const newStatusNameNormalised = normaliseStatusName(newStatusName)
 
   const issuesData = await getIssues(issueKeys)
 
+  /** @type {Map<string, Array<IssueData>}>} */
   const issuesByNewStatus = new Map()
   issuesData.forEach((issueData) => {
     const { currentStatusName } = issueData
