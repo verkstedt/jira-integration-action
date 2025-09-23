@@ -42588,19 +42588,20 @@ async function transitionIssues(issueKeys, newStatusName) {
 
   const issuesData = await getIssues(issueKeys)
 
-  const issuesByNewStatus = new Map()
+  /** @type {Map<StatusName, Array<IssueData>}>} */
+  const issuesByCurrentStatus = new Map()
   issuesData.forEach((issueData) => {
     const { currentStatusName } = issueData
-    const newStatus = issuesByNewStatus.get(currentStatusName)
+    const newStatus = issuesByCurrentStatus.get(currentStatusName)
     if (newStatus) {
       newStatus.push(issueData)
     } else {
-      issuesByNewStatus.set(currentStatusName, [issueData])
+      issuesByCurrentStatus.set(currentStatusName, [issueData])
     }
   })
 
   await Promise.all(
-    Array.from(issuesByNewStatus.entries()).map(
+    Array.from(issuesByCurrentStatus.entries()).map(
       async ([currentStatusName, sameStatusIssues]) => {
         const lastIssueInStatusKey =
           await getLastIssueInStatusKey(newStatusName)
