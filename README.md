@@ -34,8 +34,11 @@ jobs:
           # the issues, so it’s best to create a dedicated user for
           # this sort of things.
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          # e.g. “In Progress”
           jira-status-pr-draft: ${{ vars.JIRA_STATUS_PR_DRAFT }}
+          # e.g. “In Review|In Dev Review”
           jira-status-pr-ready: ${{ vars.JIRA_STATUS_PR_READY }}
+          # e.g. “QA|In PO Review|Done”
           jira-status-pr-merged: ${{ vars.JIRA_STATUS_PR_MERGED }}
 ```
 

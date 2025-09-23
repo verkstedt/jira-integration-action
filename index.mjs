@@ -262,54 +262,54 @@ async function getLastIssueInStatusKey(statusName) {
 
 /**
  * @param {Array<IssueKey>} issueKeys
- * @param {StatusName} newStatusName
+ * @param {Array<StatusName>} newStatusNames
  * @return {Promise<void>}
  */
-async function transitionIssues(issueKeys, newStatusName) {
-  const newStatusNameNormalised = normaliseStatusName(newStatusName)
+async function transitionIssues(issueKeys, newStatusNames) {
+  const newStatusNamesNormalised = newStatusNames.map(normaliseStatusName)
 
   const issuesData = await getIssues(issueKeys)
 
   /** @type {Map<StatusName, Array<IssueData>}>} */
-  const issuesByCurrentStatus = new Map()
+  const issuesByNewStatusName = new Map()
   issuesData.forEach((issueData) => {
-    const { currentStatusName } = issueData
-    const newStatus = issuesByCurrentStatus.get(currentStatusName)
-    if (newStatus) {
-      newStatus.push(issueData)
+    const newStatusName = newStatusNamesNormalised.find((statusName) =>
+      issueData.availableTransitions.has(statusName)
+    )
+    if (issuesByNewStatusName.has(newStatusName)) {
+      issuesByNewStatusName.get(newStatusName).push(issueData)
     } else {
-      issuesByCurrentStatus.set(currentStatusName, [issueData])
+      issuesByNewStatusName.set(newStatusName, [issueData])
     }
   })
 
   await Promise.all(
-    Array.from(issuesByCurrentStatus.entries()).map(
-      async ([currentStatusName, sameStatusIssues]) => {
+    Array.from(issuesByNewStatusName.entries()).map(
+      async ([newStatusName, issues]) => {
         const lastIssueInStatusKey =
           await getLastIssueInStatusKey(newStatusName)
 
         const transitionedIssueKeys = (
           await Promise.all(
-            sameStatusIssues.map(async ({ issueKey, availableTransitions }) => {
-              if (currentStatusName === newStatusNameNormalised) {
+            issues.map(async (issue) => {
+              if (issue.currentStatusName === newStatusName) {
                 console.log(
                   'Did not transition',
-                  issueKey,
+                  issue.issueKey,
                   '— already in',
                   newStatusName
                 )
               } else {
-                const newStatusId = availableTransitions.get(
-                  newStatusNameNormalised
-                )
+                const newStatusId =
+                  issue.availableTransitions.get(newStatusName)
                 if (newStatusId == null) {
                   throw new Error(
-                    `List name “${newStatusName}” not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
+                    `List name “${newStatusName}” not found in JIRA. Available statuses: ${Array.from(issue.availableTransitions.keys()).join(', ')}`
                   )
                 }
 
                 await jiraApi.post(
-                  `issue/${encodeURIComponent(issueKey)}/transitions`,
+                  `issue/${encodeURIComponent(issue.issueKey)}/transitions`,
                   {
                     transition: {
                       id: newStatusId,
@@ -317,9 +317,9 @@ async function transitionIssues(issueKeys, newStatusName) {
                   }
                 )
 
-                console.log('Transitioned', issueKey, 'to', newStatusName)
+                console.log('Transitioned', issue.issueKey, 'to', newStatusName)
 
-                return issueKey
+                return issue.issueKey
               }
             })
           )
@@ -377,7 +377,7 @@ async function main() {
           'No draft PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraStatusPrDraft)
+        await transitionIssues(issueIds, jiraStatusPrDraft.split('|'))
       }
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraStatusPrReady) {
@@ -385,7 +385,7 @@ async function main() {
           'No ready PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraStatusPrReady)
+        await transitionIssues(issueIds, jiraStatusPrReady.split('|'))
       }
     } else if (pr.state === 'closed') {
       if (!jiraStatusPrMerged) {
@@ -393,7 +393,7 @@ async function main() {
           'No merged PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraStatusPrMerged)
+        await transitionIssues(issueIds, jiraStatusPrMerged.split('|'))
       }
     } else {
       console.log(

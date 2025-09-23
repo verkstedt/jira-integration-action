@@ -18,13 +18,13 @@ inputs:
     description: 'Jira API key, get it on <https://id.atlassian.com/manage-profile/security/api-tokens>. Note that user whose API token is used, will “touch” all of the issues, so it’s best to create a dedicated user for this sort of things.'
     required: true
   jira-status-pr-draft:
-    description: 'Name of the status to transition issue to when PR is in draft'
+    description: 'Name of the status to transition issue to when PR is in draft. If multiple specified (separated by `|`), first matching will be used.'
     required: false
   jira-status-pr-ready:
-    description: 'Name of the status to transition issue to when PR is ready to review'
+    description: 'Name of the status to transition issue to when PR is ready to review. If multiple specified (separated by `|`), first matching will be used.'
     required: false
   jira-status-pr-merged:
-    description: 'Name of the status to transition issue to when PR is merged'
+    description: 'Name of the status to transition issue to when PR is merged. If multiple specified (separated by `|`), first matching will be used.'
     required: false
 runs:
   using: node20
