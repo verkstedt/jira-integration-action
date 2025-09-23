@@ -276,6 +276,12 @@ async function transitionIssues(issueKeys, newStatusNames) {
     const newStatusName = newStatusNamesNormalised.find((statusName) =>
       issueData.availableTransitions.has(statusName)
     )
+    if (!newStatusName) {
+      throw new Error(
+        `Failed to find a valid transition for issue ${issueData.issueKey}. Looked for statuses: ${newStatusNames.join(', ')}. Available transitions: ${Array.from(issueData.availableTransitions.keys()).join(', ')}`
+      )
+    }
+
     if (issuesByNewStatusName.has(newStatusName)) {
       issuesByNewStatusName.get(newStatusName).push(issueData)
     } else {
