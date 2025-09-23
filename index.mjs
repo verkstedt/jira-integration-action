@@ -75,10 +75,37 @@ const octokit = github.getOctokit(githubToken)
 const repoOwner = (payload.organization || payload.repository.owner).login
 const issueNumber = (payload.pull_request || payload.issue).number
 
+/**
+ * GitHub data
+ *
+ * @typedef {object} PullRequestComment
+ * @property {string} body
+ */
+
+/**
+ * Jira data
+ *
+ * @typedef {string} IssueKey
+ * @typedef {string} StatusName
+ *
+ * @typedef {object} IssueData
+ * @property {string} issueKey
+ * @property {StatusName} currentStatusName
+ * @property {Map<StatusName, number>} availableTransitions
+ */
+
+/**
+ * @param {string} name
+ * @return {StatusName}
+ */
 function normaliseStatusName(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+/**
+ * @param {Array<IssueKey>} issuesKeys
+ * @return {Promise<Array<IssueData>>}
+ */
 async function getIssues(issuesKeys) {
   const response = await jiraApi.get('search/jql', {
     params: {
@@ -100,6 +127,11 @@ async function getIssues(issuesKeys) {
   }))
 }
 
+/**
+ * @param {string} prBody
+ * @param {Array<PullRequestComment>} comments
+ * @return {Array<IssueKey>}
+ */
 function extractResolvedIssueKeys(prBody, comments) {
   const text = [prBody, ...comments.map((comment) => comment.body)].join('\0')
 
@@ -142,6 +174,9 @@ function extractResolvedIssueKeys(prBody, comments) {
   )
 }
 
+/**
+ * @return {Promise<Array<PullRequestComment>>}
+ */
 async function getPullRequestComments() {
   console.log('Requesting pull request comments')
 
@@ -162,6 +197,10 @@ async function nagToLinkJiraIssue() {
   })
 }
 
+/**
+ * @param {Array<IssueKey>} issueKeys
+ * @return {Promise<void>}
+ */
 async function assignPrToIssues(issueKeys) {
   await Promise.all(
     issueKeys.map(async (issueKey) => {
@@ -203,6 +242,10 @@ function escapeJqlString(str) {
   return str.replace(/(["\\])/g, '\\$1')
 }
 
+/**
+ * @param {StatusName} statusName
+ * @return {Promise<IssueKey|undefined>}
+ */
 async function getLastIssueInStatusKey(statusName) {
   const statusNameNormalised = normaliseStatusName(statusName)
   const response = await jiraApi.get('search/jql', {
@@ -217,50 +260,62 @@ async function getLastIssueInStatusKey(statusName) {
   return key
 }
 
-async function transitionIssues(issueKeys, newStatusName) {
-  const newStatusNameNormalised = normaliseStatusName(newStatusName)
+/**
+ * @param {Array<IssueKey>} issueKeys
+ * @param {Array<StatusName>} newStatusNames
+ * @return {Promise<void>}
+ */
+async function transitionIssues(issueKeys, newStatusNames) {
+  const newStatusNamesNormalised = newStatusNames.map(normaliseStatusName)
 
   const issuesData = await getIssues(issueKeys)
 
-  const issuesByNewStatus = new Map()
+  /** @type {Map<StatusName, Array<IssueData>}>} */
+  const issuesByNewStatusName = new Map()
   issuesData.forEach((issueData) => {
-    const { currentStatusName } = issueData
-    const newStatus = issuesByNewStatus.get(currentStatusName)
-    if (newStatus) {
-      newStatus.push(issueData)
+    const newStatusName = newStatusNamesNormalised.find((statusName) =>
+      issueData.availableTransitions.has(statusName)
+    )
+    if (!newStatusName) {
+      throw new Error(
+        `Failed to find a valid transition for issue ${issueData.issueKey}. Looked for statuses: ${newStatusNames.join(', ')}. Available transitions: ${Array.from(issueData.availableTransitions.keys()).join(', ')}`
+      )
+    }
+
+    if (issuesByNewStatusName.has(newStatusName)) {
+      issuesByNewStatusName.get(newStatusName).push(issueData)
     } else {
-      issuesByNewStatus.set(currentStatusName, [issueData])
+      issuesByNewStatusName.set(newStatusName, [issueData])
     }
   })
 
   await Promise.all(
-    Array.from(issuesByNewStatus.entries()).map(
-      async ([currentStatusName, sameStatusIssues]) => {
+    Array.from(issuesByNewStatusName.entries()).map(
+      async ([newStatusName, issues]) => {
         const lastIssueInStatusKey =
           await getLastIssueInStatusKey(newStatusName)
 
         const transitionedIssueKeys = (
           await Promise.all(
-            sameStatusIssues.map(async ({ issueKey, availableTransitions }) => {
-              if (currentStatusName === newStatusNameNormalised) {
+            issues.map(async (issue) => {
+              if (issue.currentStatusName === newStatusName) {
                 console.log(
                   'Did not transition',
-                  issueKey,
+                  issue.issueKey,
                   '— already in',
                   newStatusName
                 )
               } else {
-                const newStatusId = availableTransitions.get(
-                  newStatusNameNormalised
-                )
+                const newStatusId =
+                  issue.availableTransitions.get(newStatusName)
                 if (newStatusId == null) {
                   throw new Error(
-                    `List name “${newStatusName}” not found in JIRA. Available statuses: ${Array.from(availableTransitions.keys()).join(', ')}`
+                    `List name “${newStatusName}” not found in JIRA. Available statuses: ${Array.from(issue.availableTransitions.keys()).join(', ')}`
                   )
                 }
 
                 await jiraApi.post(
-                  `issue/${encodeURIComponent(issueKey)}/transitions`,
+                  `issue/${encodeURIComponent(issue.issueKey)}/transitions`,
                   {
                     transition: {
                       id: newStatusId,
@@ -268,9 +323,9 @@ async function transitionIssues(issueKeys, newStatusName) {
                   }
                 )
 
-                console.log('Transitioned', issueKey, 'to', newStatusName)
+                console.log('Transitioned', issue.issueKey, 'to', newStatusName)
 
-                return issueKey
+                return issue.issueKey
               }
             })
           )
@@ -328,7 +383,7 @@ async function main() {
           'No draft PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraStatusPrDraft)
+        await transitionIssues(issueIds, jiraStatusPrDraft.split('|'))
       }
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraStatusPrReady) {
@@ -336,7 +391,7 @@ async function main() {
           'No ready PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraStatusPrReady)
+        await transitionIssues(issueIds, jiraStatusPrReady.split('|'))
       }
     } else if (pr.state === 'closed') {
       if (!jiraStatusPrMerged) {
@@ -344,7 +399,7 @@ async function main() {
           'No merged PR status name provided, skipping transitioning issues'
         )
       } else {
-        await transitionIssues(issueIds, jiraStatusPrMerged)
+        await transitionIssues(issueIds, jiraStatusPrMerged.split('|'))
       }
     } else {
       console.log(
