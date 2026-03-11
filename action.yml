@@ -27,5 +27,5 @@ inputs:
     description: 'Name of the status to transition issue to when PR is merged. If multiple specified (separated by `|`), first matching will be used.'
     required: false
 runs:
-  using: node20
+  using: node24
   main: 'dist/index.mjs'
