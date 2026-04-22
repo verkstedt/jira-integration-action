@@ -23,5 +23,9 @@
     "eslint-plugin-prettier": "^5.2.1",
     "prettier": "^3.3.3",
     "stylelint": "^16.9.0"
+  },
+  "config": {
+    "setup-repo-is-frontend": "No",
+    "setup-repo-version": "1.1.9+git.4447930"
   }
 }

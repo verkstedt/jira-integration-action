@@ -46,3 +46,7 @@ jobs:
 
 - Create `mock-inputs.json` with input values AND additional `test-issue-id`.
 - Run `node index.mjs`.
+
+## License
+
+[MIT](./LICENSE)

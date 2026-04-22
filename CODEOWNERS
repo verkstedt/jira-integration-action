@@ -1,0 +1,8 @@
+# Make sure dependabot PRs get reviewers assigned
+package-lock.json @marek-saji
+yarn-lock @marek-saji
+pnpm-lock.yaml @marek-saji
+Dockerfile @marek-saji
+docker-compose.* @marek-saji
+/.devcontainer/devcontainer.json @marek-saji
+/.github/workflows/ @marek-saji
