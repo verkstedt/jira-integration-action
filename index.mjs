@@ -12,7 +12,7 @@ import * as github from '@actions/github'
 
 const {
   context,
-  context: { payload, repo },
+  context: { payload },
 } = github
 const pr = payload.pull_request || payload.issue
 
@@ -127,6 +127,18 @@ async function getIssues(issuesKeys) {
   }))
 }
 
+const keywords = [
+  'closes',
+  'close',
+  'closed',
+  'fix',
+  'fixes',
+  'fixed',
+  'resolve',
+  'resolves',
+  'resolved',
+]
+
 /**
  * @param {string} prBody
  * @param {Array<PullRequestComment>} comments
@@ -135,17 +147,6 @@ async function getIssues(issuesKeys) {
 function extractResolvedIssueKeys(prBody, comments) {
   const text = [prBody, ...comments.map((comment) => comment.body)].join('\0')
 
-  const keywords = [
-    'close',
-    'closes',
-    'closed',
-    'fix',
-    'fixes',
-    'fixed',
-    'resolve',
-    'resolves',
-    'resolved',
-  ]
   const keywordsRegExp = githubRequireKeywordPrefix
     ? `(?:${keywords.join('|')})\\s+`
     : ''
@@ -180,21 +181,48 @@ function extractResolvedIssueKeys(prBody, comments) {
 async function getPullRequestComments() {
   core.info('Requesting pull request comments')
 
-  const response = await octokit.rest.issues.listComments({
+  return octokit.paginate(octokit.rest.issues.listComments, {
     owner: repoOwner,
     repo: payload.repository.name,
     issue_number: issueNumber,
+    per_page: 100,
   })
-  return response.data
 }
 
-async function nagToLinkJiraIssue() {
-  await octokit.rest.issues.createComment({
-    issue_number: pr.number,
-    owner: repo.owner,
-    repo: repo.repo,
-    body: `@${context.actor} Please add Jira issue URL to the PR description (proceeded with “Closes” or “Fixes”) — it will make issues move when PR status changes.\n`,
-  })
+async function postTipCommentLinkJiraIssue(comments) {
+  if (
+    // Only post a comment, if acting upon an event that could’ve
+    // changed PR body
+    ['pull_request', 'pull_request_target'].includes(context.eventName) &&
+    ['opened', 'edited'].includes(payload.action)
+  ) {
+    try {
+      const tipCommentMarker = '<!-- JIRA_INTEGRATION_NAG -->'
+
+      const alreadyCommented = comments.some((comment) =>
+        comment.body?.includes(tipCommentMarker)
+      )
+
+      if (alreadyCommented) {
+        core.info('No issues found, but tip comment already present.')
+      } else {
+        core.info('No issues found — posting a tip comment.')
+
+        const keyword =
+          keywords[0].slice(0, 1).toUpperCase() + keywords[0].slice(1)
+        const body = `${tipCommentMarker}\n> [!TIP]\n> Include “${keyword} <var>JIRA_ISSUE_URL</var>” in the PR body to associate it with an issue.`
+
+        await octokit.rest.issues.createComment({
+          issue_number: pr.number,
+          owner: repoOwner,
+          repo: payload.repository.name,
+          body,
+        })
+      }
+    } catch (error) {
+      core.error(`Failed to post tip comment: ${error}`)
+    }
+  }
 }
 
 /**
@@ -343,15 +371,9 @@ async function main() {
     const issueIds = extractResolvedIssueKeys(pr.body, comments)
 
     if (!issueIds.length) {
-      if (
-        context.eventName === 'pull_request' &&
-        payload.action === 'opened' &&
-        !['main', 'production'].includes(pr.head.ref)
-      ) {
-        void nagToLinkJiraIssue()
-      }
-
       core.info('Could not find issue IDs')
+      // Only post a tip comment when the PR body could have changed
+      await postTipCommentLinkJiraIssue(comments)
       return
     }
     core.info('Found issue IDs:', issueIds.join(', '))
