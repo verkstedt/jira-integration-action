@@ -178,7 +178,7 @@ function extractResolvedIssueKeys(prBody, comments) {
  * @return {Promise<Array<PullRequestComment>>}
  */
 async function getPullRequestComments() {
-  console.log('Requesting pull request comments')
+  core.info('Requesting pull request comments')
 
   const response = await octokit.rest.issues.listComments({
     owner: repoOwner,
@@ -204,7 +204,7 @@ async function nagToLinkJiraIssue() {
 async function assignPrToIssues(issueKeys) {
   await Promise.all(
     issueKeys.map(async (issueKey) => {
-      console.log('Assigning PR', `#${pr.number}`, 'to issue', issueKey)
+      core.info(`Assigning PR #${pr.number} to issue ${issueKey}`)
 
       const prLinkObject = {
         url: pr.html_url,
@@ -229,13 +229,7 @@ async function assignPrToIssues(issueKeys) {
     })
   )
 
-  console.log(
-    'Assigned PR',
-    `#${pr.number}`,
-    'to',
-    issueKeys.length,
-    'issue(s)'
-  )
+  core.info(`Assigned PR #${pr.number} to ${issueKeys.length} issue(s)`)
 }
 
 function escapeJqlString(str) {
@@ -256,7 +250,7 @@ async function getLastIssueInStatusKey(statusName) {
     },
   })
   const key = response.data.issues.at(0)?.key
-  console.log('Last issue in', statusName, 'is', key)
+  core.info(`Last issue in ${statusName} is ${key}`)
   return key
 }
 
@@ -299,11 +293,8 @@ async function transitionIssues(issueKeys, newStatusNames) {
           await Promise.all(
             issues.map(async (issue) => {
               if (issue.currentStatusName === newStatusName) {
-                console.log(
-                  'Did not transition',
-                  issue.issueKey,
-                  '— already in',
-                  newStatusName
+                core.info(
+                  `Did not transition ${issue.issueKey} — already in ${newStatusName}`
                 )
               } else {
                 const newStatusId =
@@ -323,7 +314,7 @@ async function transitionIssues(issueKeys, newStatusNames) {
                   }
                 )
 
-                console.log('Transitioned', issue.issueKey, 'to', newStatusName)
+                core.info(`Transitioned ${issue.issueKey} to ${newStatusName}`)
 
                 return issue.issueKey
               }
@@ -337,9 +328,8 @@ async function transitionIssues(issueKeys, newStatusNames) {
             issues: transitionedIssueKeys,
             rankAfterIssue: lastIssueInStatusKey,
           })
-          console.log(
-            `Moved issues to the end of column '${newStatusName}':`,
-            ...transitionedIssueKeys
+          core.info(
+            `Moved issues to the end of column '${newStatusName}': ${transitionedIssueKeys.join(', ')}`
           )
         }
       }
@@ -361,10 +351,10 @@ async function main() {
         void nagToLinkJiraIssue()
       }
 
-      console.log('Could not find issue IDs')
+      core.info('Could not find issue IDs')
       return
     }
-    console.log('Found issue IDs:', issueIds.join(', '))
+    core.info('Found issue IDs:', issueIds.join(', '))
 
     // Treat PRs with “draft” or “wip” in brackets at the start or
     // end of the titles like drafts. Useful for orgs on unpaid
@@ -379,7 +369,7 @@ async function main() {
 
     if (pr.state === 'open' && isDraft) {
       if (!jiraStatusPrDraft) {
-        console.log(
+        core.info(
           'No draft PR status name provided, skipping transitioning issues'
         )
       } else {
@@ -387,7 +377,7 @@ async function main() {
       }
     } else if (pr.state === 'open' && !isDraft) {
       if (!jiraStatusPrReady) {
-        console.log(
+        core.info(
           'No ready PR status name provided, skipping transitioning issues'
         )
       } else {
@@ -395,17 +385,15 @@ async function main() {
       }
     } else if (pr.state === 'closed') {
       if (!jiraStatusPrMerged) {
-        console.log(
+        core.info(
           'No merged PR status name provided, skipping transitioning issues'
         )
       } else {
         await transitionIssues(issueIds, jiraStatusPrMerged.split('|'))
       }
     } else {
-      console.log(
-        'Skipping transitioning the issues:',
-        `pr.state=${pr.state},`,
-        pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'
+      core.info(
+        `Skipping transitioning the issues: pr.state=${pr.state}, ${pr.draft ? 'draft' : isFauxDraft ? 'faux draft' : 'not draft'}`
       )
     }
   } catch (error) {
