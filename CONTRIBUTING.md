@@ -1,3 +1,0 @@
-- Write your changes to `index.mjs` and not `dist/index.mjs`
-- Make sure EsLint is happy with your changes (`npx eslint index.mjs`)
-- Run `npm run build` before committing your changes

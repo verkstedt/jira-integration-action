@@ -1,6 +1,8 @@
 author: 'verkstedt GmbH <info@verkstedt.com>'
-name: jira-integration
-description: GitHub Action to move Jira tickets based on PR status
+name: jira-integration (deprecated)
+description: >
+  DEPRECATED — forwards to verkstedt/actions/jira-integration@v1.
+  Please update your workflow to reference the new location directly.
 branding:
   color: yellow
   icon: anchor
@@ -8,6 +10,11 @@ inputs:
   github-token:
     description: 'Github token, https://docs.github.com/en/actions/reference/authentication-in-a-workflow'
     required: true
+    deprecationMessage: >
+      verkstedt/jira-integration-action is deprecated and has moved to
+      verkstedt/actions/jira-integration. Please update your workflow to use
+      `verkstedt/actions/jira-integration@v1` — see
+      https://github.com/verkstedt/actions/tree/HEAD/jira-integration
   jira-domain:
     description: 'Jira domain, e.g. example.atlassian.net'
     required: true
@@ -27,5 +34,14 @@ inputs:
     description: 'Name of the status to transition issue to when PR is merged. If multiple specified (separated by `|`), first matching will be used.'
     required: false
 runs:
-  using: node24
-  main: 'dist/index.mjs'
+  using: composite
+  steps:
+    - uses: verkstedt/actions/jira-integration@v1
+      with:
+        github-token: ${{ inputs.github-token }}
+        jira-domain: ${{ inputs.jira-domain }}
+        jira-user: ${{ inputs.jira-user }}
+        jira-api-token: ${{ inputs.jira-api-token }}
+        jira-status-pr-draft: ${{ inputs.jira-status-pr-draft }}
+        jira-status-pr-ready: ${{ inputs.jira-status-pr-ready }}
+        jira-status-pr-merged: ${{ inputs.jira-status-pr-merged }}
